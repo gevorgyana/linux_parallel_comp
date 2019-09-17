@@ -1,2 +1,3 @@
 all:
-	g++ main.cpp -g
+	g++ -c -g main.cpp handlers.cpp functions.cpp
+	g++ *.o -o app
