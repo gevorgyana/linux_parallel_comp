@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <aio.h>
+#include <sys/select.h>
 
 // cpp headers
 #include <iostream>
@@ -91,15 +92,15 @@ int main()
 	  msg my_msg;
 	  read(fd, &my_msg, sizeof(msg));
 
+	  // ready to report that we have finished
+	  close(pfd[1]);
+	  
 	  // useful work here
 
 	  // RESPOND
 	  ans a = {i};
 	  int wdf = open(str.c_str(), O_WRONLY);
 	  write(wdf, &a, sizeof(ans));
-
-	  // ready to report that we have finished
-	  close(pfd[1]);
 	  
 	  _exit(0);
 	}
@@ -119,6 +120,44 @@ int main()
   int ready_cnt = 0;
   int ready_flag = 0;
 
+  /*
+    the only thing i need to be sure about is that 
+    all the children have read their message
+    this is what unnamed pipe is for
+    then use select to watch for fifos
+   */
+
+  // test - try to read from stdin
+  // it may get interrupted by a signal
+
+  /*
+  fd_set readfds, writefds;
+  struct timeval timeout;
+  timeout.tv_sec = 2;
+  timeout.tv_usec = 0;
+  FD_ZERO(&readfds);
+  FD_ZERO(&writefds);
+  FD_SET(0, &readfds);
+
+  int ready_ready = -1;
+  while ((ready_ready = select(1, &readfds, &writefds, NULL, &timeout)) < 0)
+    {
+      std::cout << "SELECT WORKED" << ready_ready << std::endl;
+    }
+  */
+
+  // for select system call
+  fd_set reads;
+  struct timespec out;
+  out.tv_sec = 2;
+  out.tv_nsec = 0;
+  int nfd = 0;
+  for (int i = 0; i < n; ++i)
+    {
+      nfd = (nfd > my_fds[i] ? nfd : my_fds[i]);
+    }
+  std::cout << "NFD VALUE: " << nfd<< std::endl;
+  
   for (int i = 0; i < n; ++i)
     {
       results[i] = 0;
@@ -135,8 +174,47 @@ int main()
     otherwise race condition
    */
 
+  /*
+    NEW: use pselect to avoid being hit by SIGCHLD
+   */
+
   while (!ready_flag)
     {
+
+      // prepare signal mask
+      sigset_t sigset;
+      sigemptyset(&sigset);
+      sigaddset(&sigset, SIGCHLD);
+      
+      FD_ZERO(&reads);
+      for (int i = 0; i < n; ++i)
+	{
+	  FD_SET(my_fds[i], &reads);
+	}
+      FD_SET(STDIN_FILENO, &reads);
+
+      int ret_ = pselect(nfd, &reads, NULL, NULL, &out, &sigset);
+      std::cout << "--RETVAL" << ret_ << std::endl;
+      
+      for (int i = 0; i < n; ++i)
+	{
+	  std::cout << "IS_SET (T/F): " << FD_ISSET(my_fds[i], &reads) << std::endl;
+	}
+
+      // use select to watch fds (fifos and stdin)
+      // if there are some,
+      // check if it is user input
+      
+      // if it is input, terminate nicely
+      // but if you were able to perform the computation,
+      // report it
+
+      // if not, process
+      // if SCE, process and terminate
+      // if not, just read and remember 
+      
+      // deprecates soooooon
+      
       for (int i = 0; i < n; i++)
 	{
 	  if (results[i])
@@ -151,7 +229,8 @@ int main()
 	}
       if (ready_cnt == n)
 	ready_flag = 1;
-      std::cout << "next iter " << ready_cnt << std::endl;
+      std::cout << "score for next iter " << ready_cnt << std::endl;
+      
     }
 
   for (int i = 0; i < n; ++i)
