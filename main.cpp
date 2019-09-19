@@ -98,7 +98,8 @@ int main()
 	  // useful work here
 
 	  // RESPOND
-	  ans a = {i};
+	  ans a;
+	  a.value = i + 1;
 	  int wdf = open(str.c_str(), O_WRONLY);
 	  write(wdf, &a, sizeof(ans));
 	  
@@ -114,7 +115,11 @@ int main()
 
   // todo - wait for children later; and do not block
   // wait for children
-  read(pfd[0], &dummy_var, sizeof(int));
+  if (read(pfd[0], &dummy_var, sizeof(int)) < 0)
+    {
+      std::cout << "=== error reading in from sync pipe === " << std::endl;
+    }
+  
   
   int results[n];
   int ready_cnt = 0;
@@ -182,26 +187,27 @@ int main()
 	{
 	  std::cout << "IS_SET (T/F): " << FD_ISSET(my_fds[i], &reads) << std::endl;
 	}
-      sleep(2);
 
-      FD_ZERO(&reads);
-      for (int i = 0; i < n; ++i)
+      if (FD_ISSET(STDIN_FILENO, &reads))
 	{
-	  FD_SET(my_fds[i], &reads);
-	}
-      FD_SET(STDIN_FILENO, &reads);
-      
-      int ret__ = pselect(nfd, &reads, NULL, NULL, &out, &sigset);
-      std::cout << "--RETVAL" << ret__ << std::endl;
-      
-      for (int i = 0; i < n; ++i)
-	{
-	  std::cout << "IS_SET (T/F): " << FD_ISSET(my_fds[i], &reads) << std::endl;
-	}
+	  char c;
+	  if (read(STDIN_FILENO, &c, sizeof(char)) == (char)'q')
+	    {
+	      bool can_report_before_quitting = true;
+	      for (int i = 0; i < n && can_report_before_quitting; ++i)
+		{
+		  can_report_before_quitting = can_report_before_quitting & results[i];
+		}
+	      if (can_report_before_quitting)
+		{
+		  std::cout << "WAS ABLE TO TELL THE RESULTS" << std::endl;
+		}
 
-      // use select to watch fds (fifos and stdin)
-      // if there are some,
-      // check if it is user input
+	      // send SIGTERM or something else that gets handled automatically,
+	      // later write a handler for children to quit nicely
+	      std::cout << "TERMINATE EVERYTHING! " << std::endl;
+	    }
+	}
       
       // if it is input, terminate nicely
       // but if you were able to perform the computation,
@@ -209,28 +215,40 @@ int main()
 
       // if not, process
       // if SCE, process and terminate
-      // if not, just read and remember 
-      
-      // deprecates soooooon
-      
+      // if not, just read and remember
+
       for (int i = 0; i < n; i++)
 	{
-	  if (results[i])
+	  // already remembered or not ready to read
+	  if (results[i] || !(FD_ISSET(my_fds[i], &reads)))
 	    continue;
+
+	  // safe to read here - no blocking
 	  ans a;
 	  int ret_val = read(my_fds[i], &a, sizeof(ans));
 	  if (ret_val > 0)
 	    {
-	      results[i] = 1;
+	      if (a.value == 0)
+		{
+		  std::cout << "SHORT CIRCUIT EVALUATION!!!!" << std::endl;
+		}
+	      
+	      results[i] = a.value;
 	      ++ready_cnt;
 	    }
+	  else
+	    {
+	      std::cout << "=== error reading fifo === " << std::endl;
+	    }
 	}
+      
       if (ready_cnt == n)
 	ready_flag = 1;
       std::cout << "score for next iter " << ready_cnt << std::endl;
-      
     }
 
+
+  std::cout << "SURVIVED UNTIL THE END11111!!!!!!" << std::endl;
   for (int i = 0; i < n; ++i)
     {
       std::cout << results[i] << std::endl;
