@@ -130,32 +130,17 @@ int main()
   // test - try to read from stdin
   // it may get interrupted by a signal
 
-  /*
-  fd_set readfds, writefds;
-  struct timeval timeout;
-  timeout.tv_sec = 2;
-  timeout.tv_usec = 0;
-  FD_ZERO(&readfds);
-  FD_ZERO(&writefds);
-  FD_SET(0, &readfds);
-
-  int ready_ready = -1;
-  while ((ready_ready = select(1, &readfds, &writefds, NULL, &timeout)) < 0)
-    {
-      std::cout << "SELECT WORKED" << ready_ready << std::endl;
-    }
-  */
-
   // for select system call
   fd_set reads;
   struct timespec out;
-  out.tv_sec = 2;
+  out.tv_sec = 1;
   out.tv_nsec = 0;
   int nfd = 0;
   for (int i = 0; i < n; ++i)
     {
       nfd = (nfd > my_fds[i] ? nfd : my_fds[i]);
     }
+  ++nfd;
   std::cout << "NFD VALUE: " << nfd<< std::endl;
   
   for (int i = 0; i < n; ++i)
@@ -173,19 +158,16 @@ int main()
     you want to wait on the sync pipe (usual pipe; named)! 
     otherwise race condition
    */
-
-  /*
-    NEW: use pselect to avoid being hit by SIGCHLD
-   */
-
+  
   while (!ready_flag)
     {
-
+      
       // prepare signal mask
       sigset_t sigset;
       sigemptyset(&sigset);
       sigaddset(&sigset, SIGCHLD);
-      
+
+      // prepare file descriptors of interest
       FD_ZERO(&reads);
       for (int i = 0; i < n; ++i)
 	{
@@ -195,6 +177,22 @@ int main()
 
       int ret_ = pselect(nfd, &reads, NULL, NULL, &out, &sigset);
       std::cout << "--RETVAL" << ret_ << std::endl;
+      
+      for (int i = 0; i < n; ++i)
+	{
+	  std::cout << "IS_SET (T/F): " << FD_ISSET(my_fds[i], &reads) << std::endl;
+	}
+      sleep(2);
+
+      FD_ZERO(&reads);
+      for (int i = 0; i < n; ++i)
+	{
+	  FD_SET(my_fds[i], &reads);
+	}
+      FD_SET(STDIN_FILENO, &reads);
+      
+      int ret__ = pselect(nfd, &reads, NULL, NULL, &out, &sigset);
+      std::cout << "--RETVAL" << ret__ << std::endl;
       
       for (int i = 0; i < n; ++i)
 	{
