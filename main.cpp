@@ -96,6 +96,7 @@ int main()
 	  close(pfd[1]);
 	  
 	  // useful work here
+	  sleep(2 * i + 2);
 
 	  // RESPOND
 	  ans a;
@@ -138,8 +139,8 @@ int main()
   // for select system call
   fd_set reads;
   struct timespec out;
-  out.tv_sec = 1;
-  out.tv_nsec = 0;
+  out.tv_sec = 0;
+  out.tv_nsec = 100000000;
   int nfd = 0;
   for (int i = 0; i < n; ++i)
     {
@@ -162,6 +163,10 @@ int main()
     the other one is for stdin (do in in raw mode, btw)
     you want to wait on the sync pipe (usual pipe; named)! 
     otherwise race condition
+   */
+
+  /*TODO USE SIGNAL MASK IN THIS SCOPE,
+    IT STILL CAUSES DELAYS TO DEAL WITH SIGCHLD
    */
   
   while (!ready_flag)
@@ -190,9 +195,13 @@ int main()
 
       if (FD_ISSET(STDIN_FILENO, &reads))
 	{
+	  std::cout << "LISTENING" << std::endl;
 	  char c;
-	  if (read(STDIN_FILENO, &c, sizeof(char)) == (char)'q')
+	  std::cin >> c;
+	  
+	  if (c == 'q')
 	    {
+	      std::cout << "=========================================" << std::endl;
 	      bool can_report_before_quitting = true;
 	      for (int i = 0; i < n && can_report_before_quitting; ++i)
 		{
