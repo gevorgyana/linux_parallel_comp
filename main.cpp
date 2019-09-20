@@ -151,7 +151,7 @@ int main()
   
   for (int i = 0; i < n; ++i)
     {
-      results[i] = 0;
+      results[i] = -1;
     }
 
   /*
@@ -167,25 +167,38 @@ int main()
 
   /*TODO USE SIGNAL MASK IN THIS SCOPE,
     IT STILL CAUSES DELAYS TO DEAL WITH SIGCHLD
+    look at book code,
+    there may a be a race confition if you 
+    set signal mask and receive the signal around the same time
    */
+
+  /*
+    TODO:
+    use blocking pelelct here in async case - no need for timeout
+   */
+
+  // signal mask for SIGCHLD
+  sigset_t sigset;
+  sigemptyset(&sigset);
+  sigaddset(&sigset, SIGCHLD);
+  sigprocmask(SIG_BLOCK, &sigset, NULL);
   
   while (!ready_flag)
     {
-      
-      // prepare signal mask
-      sigset_t sigset;
-      sigemptyset(&sigset);
-      sigaddset(&sigset, SIGCHLD);
-
       // prepare file descriptors of interest
       FD_ZERO(&reads);
       for (int i = 0; i < n; ++i)
 	{
+	  // already read response
+	  if (results[i] >= 0)
+	    {
+	      continue;
+	    }
 	  FD_SET(my_fds[i], &reads);
 	}
       FD_SET(STDIN_FILENO, &reads);
 
-      int ret_ = pselect(nfd, &reads, NULL, NULL, &out, &sigset);
+      int ret_ = pselect(nfd, &reads, NULL, NULL, NULL, &sigset);
       std::cout << "--RETVAL" << ret_ << std::endl;
       
       for (int i = 0; i < n; ++i)
@@ -229,7 +242,7 @@ int main()
       for (int i = 0; i < n; i++)
 	{
 	  // already remembered or not ready to read
-	  if (results[i] || !(FD_ISSET(my_fds[i], &reads)))
+	  if ((results[i] >= 0) || !(FD_ISSET(my_fds[i], &reads)))
 	    continue;
 
 	  // safe to read here - no blocking
@@ -241,7 +254,7 @@ int main()
 		{
 		  std::cout << "SHORT CIRCUIT EVALUATION!!!!" << std::endl;
 		}
-	      
+	      std::cout << "ALL GOOD " << std::endl;
 	      results[i] = a.value;
 	      ++ready_cnt;
 	    }
@@ -256,13 +269,15 @@ int main()
       std::cout << "score for next iter " << ready_cnt << std::endl;
     }
 
-
   std::cout << "SURVIVED UNTIL THE END11111!!!!!!" << std::endl;
   for (int i = 0; i < n; ++i)
     {
       std::cout << results[i] << std::endl;
     }
 
+  // unblock signals from children
+  sigprocmask(SIG_UNBLOCK, &sigset, NULL);
+  
   int pid;
   while ((pid = wait(NULL)) > 0)
     {
