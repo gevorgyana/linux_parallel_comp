@@ -7,40 +7,36 @@
 #include <fcntl.h>
 #include <aio.h>
 #include <sys/select.h>
-
 // cpp headers
 #include <iostream>
 #include <unordered_map>
-
 // relative headers
 #include "handlers.hpp"
-
-// =========================
-
 // append a number to this string and you get the filepath
 #define FIFO_TEMPLATE "/home/i516739/fifo"
 // n is the number of children
 #define n 3
-
 // struct that a child recieves
 struct msg
 {
   int value;
 };
-
 // struct that a parent sends
 struct ans
 {
   int value;
 };
 
-// GLOBAL VARS
-// ========================
-
-volatile sig_atomic_t cancel_requested;
+ #define LOG
 
 int main()
 {
+  // signal mask for SIGCHLD
+  sigset_t sigset;
+  sigemptyset(&sigset);
+  sigaddset(&sigset, SIGCHLD);
+  sigprocmask(SIG_BLOCK, &sigset, NULL);
+  
   // TODO set the terminal to raw mode - so that I can read single characters
   // for now, just create a separate process
   // that will read from console
@@ -60,22 +56,26 @@ int main()
   // pipe for synchronisation
   int pfd[2];
   pipe(pfd);
+  // dummy variable to read from synchronisation pipe
   int dummy_var;
+#ifdef LOG 
   std::cout << "CREATED PIPE" << std::endl;
+#endif
   
   for (int i = 0; i < n; ++i)
     {
-      // SETUP
-      // do it in the current directory
+      // SETUP 
+      // todo: do it in current directory instead 
       std::string str = FIFO_TEMPLATE + std::to_string(i);
       // todo: use other permissions, we just create regular file in
       // current diirectory
       mkfifo(str.c_str(), S_IRUSR | S_IWUSR | S_IWGRP);
 
-      // OPEN FIFO TO READ LATER
+      // OPEN FIFO TO READ FROM IT LATER
       int rfd = open(str.c_str(), O_RDONLY | O_NONBLOCK);
       my_fds[i] = rfd;
-      
+
+      // send a messge to a child
       int wfd = open(str.c_str(), O_WRONLY);
       msg yo_msg = {1};
       write(wfd, &yo_msg, sizeof(msg));
@@ -83,7 +83,6 @@ int main()
       int success = fork();
       if (success == 0)
 	{
-
 	  // close read end
 	  close(pfd[0]);
 
@@ -106,16 +105,16 @@ int main()
 	  
 	  _exit(0);
 	}
+#ifdef LOG
       std::cout << "AFTER FORK " << std::endl;
+#endif
       children_pids[i] = success;
     }
 
   // MAIN BLOCK
-  // close fd to sync
+  // close fd to synchronise yourself with children
   close(pfd[1]);
 
-  // todo - wait for children later; and do not block
-  // wait for children
   if (read(pfd[0], &dummy_var, sizeof(int)) < 0)
     {
       std::cout << "=== error reading in from sync pipe === " << std::endl;
@@ -126,110 +125,99 @@ int main()
   int ready_cnt = 0;
   int ready_flag = 0;
 
-  /*
-    the only thing i need to be sure about is that 
-    all the children have read their message
-    this is what unnamed pipe is for
-    then use select to watch for fifos
-   */
-
-  // test - try to read from stdin
-  // it may get interrupted by a signal
-
   // for select system call
   fd_set reads;
-  struct timespec out;
-  out.tv_sec = 0;
-  out.tv_nsec = 100000000;
   int nfd = 0;
   for (int i = 0; i < n; ++i)
     {
       nfd = (nfd > my_fds[i] ? nfd : my_fds[i]);
     }
   ++nfd;
+#ifdef LOG
   std::cout << "NFD VALUE: " << nfd<< std::endl;
+#endif
   
   for (int i = 0; i < n; ++i)
     {
-      results[i] = 0;
+      results[i] = -1;
     }
-
-  /*
-    todo for async input case 
-    use select()
-    inside the main block
-    to be able to fetch input from n + 1 decriptors
-    where n is the amnt of children
-    the other one is for stdin (do in in raw mode, btw)
-    you want to wait on the sync pipe (usual pipe; named)! 
-    otherwise race condition
-   */
-
-  /*TODO USE SIGNAL MASK IN THIS SCOPE,
-    IT STILL CAUSES DELAYS TO DEAL WITH SIGCHLD
-   */
   
   while (!ready_flag)
     {
-      
-      // prepare signal mask
-      sigset_t sigset;
-      sigemptyset(&sigset);
-      sigaddset(&sigset, SIGCHLD);
-
       // prepare file descriptors of interest
       FD_ZERO(&reads);
       for (int i = 0; i < n; ++i)
 	{
+	  // have already read response
+	  if (results[i] >= 0)
+	    {
+	      continue;
+	    }
 	  FD_SET(my_fds[i], &reads);
 	}
       FD_SET(STDIN_FILENO, &reads);
 
-      int ret_ = pselect(nfd, &reads, NULL, NULL, &out, &sigset);
+      int ret_ = pselect(nfd, &reads, NULL, NULL, NULL, &sigset);
+#ifdef LOG 
       std::cout << "--RETVAL" << ret_ << std::endl;
+#endif
       
       for (int i = 0; i < n; ++i)
 	{
+#ifdef LOG 
 	  std::cout << "IS_SET (T/F): " << FD_ISSET(my_fds[i], &reads) << std::endl;
+#endif
 	}
 
       if (FD_ISSET(STDIN_FILENO, &reads))
 	{
+#ifdef LOG
 	  std::cout << "LISTENING" << std::endl;
+#endif
 	  char c;
 	  std::cin >> c;
 	  
 	  if (c == 'q')
 	    {
-	      std::cout << "=========================================" << std::endl;
 	      bool can_report_before_quitting = true;
 	      for (int i = 0; i < n && can_report_before_quitting; ++i)
 		{
-		  can_report_before_quitting = can_report_before_quitting & results[i];
+		  can_report_before_quitting = can_report_before_quitting && (results[i] >= 0);
 		}
 	      if (can_report_before_quitting)
 		{
-		  std::cout << "WAS ABLE TO TELL THE RESULTS" << std::endl;
+#ifdef LOG
+		  std::cout << "===WAS ABLE TO TELL THE RESULTS" << std::endl;
+#endif
+		  // now send a SIGTERM to children and exit
+		  for (int j = 0; j < n; ++j)
+		    {
+		      kill(children_pids[j], SIGTERM);
+		    }
+		  for (int i = 0; i < n; ++i)
+		    {
+		      std::cout << results[i] << std::endl;
+		    }
+		  exit(1);
 		}
 
 	      // send SIGTERM or something else that gets handled automatically,
 	      // later write a handler for children to quit nicely
-	      std::cout << "TERMINATE EVERYTHING! " << std::endl;
+#ifdef LOG
+	      std::cout << "===TERMINATE EVERYTHING! " << std::endl;
+#endif
+	      for (int j = 0; j < n; ++j)
+		{
+		  kill(children_pids[j], SIGTERM);
+		}
+	      exit(1);
 	    }
 	}
-      
-      // if it is input, terminate nicely
-      // but if you were able to perform the computation,
-      // report it
-
-      // if not, process
-      // if SCE, process and terminate
-      // if not, just read and remember
 
       for (int i = 0; i < n; i++)
 	{
 	  // already remembered or not ready to read
-	  if (results[i] || !(FD_ISSET(my_fds[i], &reads)))
+	  if ((results[i] >= 0) || !(FD_ISSET(my_fds[i], &reads)))
 	    continue;
 
 	  // safe to read here - no blocking
@@ -239,30 +227,38 @@ int main()
 	    {
 	      if (a.value == 0)
 		{
-		  std::cout << "SHORT CIRCUIT EVALUATION!!!!" << std::endl;
+#ifdef LOG
+		  std::cout << "===SHORT CIRCUIT EVALUATION" << std::endl;
+#endif
+		  std::cout << "NULL" << std::endl;
 		}
-	      
+#ifdef LOG
+	      std::cout << "===USUAL PROCESSING " << std::endl;
+#endif
 	      results[i] = a.value;
 	      ++ready_cnt;
-	    }
-	  else
-	    {
-	      std::cout << "=== error reading fifo === " << std::endl;
 	    }
 	}
       
       if (ready_cnt == n)
 	ready_flag = 1;
-      std::cout << "score for next iter " << ready_cnt << std::endl;
+#ifdef LOG
+      std::cout << "===score for next iter " << ready_cnt << std::endl;
+#endif
     }
 
-
-  std::cout << "SURVIVED UNTIL THE END11111!!!!!!" << std::endl;
+#ifdef LOG
+  std::cout << "==REPORT FINAL RESULTS; WERE ABLE TO FINISH" << std::endl;
+#endif
+  
   for (int i = 0; i < n; ++i)
     {
       std::cout << results[i] << std::endl;
     }
 
+  // unblock signals from children
+  sigprocmask(SIG_UNBLOCK, &sigset, NULL);
+  
   int pid;
   while ((pid = wait(NULL)) > 0)
     {
