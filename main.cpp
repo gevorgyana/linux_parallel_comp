@@ -29,7 +29,7 @@ struct ans {
 
 /**
  * currenly not used - for setting tty raw mode
- */
+ *
 struct termios orig_termios;
 void disableRawMode() {
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
@@ -42,6 +42,7 @@ void enableRawMode() {
   raw.c_lflag &= ~(ECHO);
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
+*/
 
 int main() {
   // signal mask for SIGCHLD
