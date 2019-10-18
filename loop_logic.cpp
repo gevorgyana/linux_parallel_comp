@@ -10,7 +10,44 @@ using std::cout;
 using std::cin;
 using std::endl;
 
+#define MAX_NSEC_IN_TIMEVAL 999999999
+
 void do_loop();
+
+void preserve_period(const timespec* period, const timespec* elapsed)
+{
+  timespec sleep_for;
+
+  cout << period->tv_sec << ' ' << period->tv_nsec << endl;
+  cout << elapsed->tv_sec << ' ' << elapsed->tv_nsec << endl;
+
+  // should not happen, but still there is no sense in
+  // waiting even more, when we are already late
+  if (period->tv_sec < elapsed->tv_sec
+      ||
+      (
+          period->tv_sec == elapsed->tv_sec
+          &&
+          period->tv_nsec < elapsed->tv_nsec
+      )
+     )
+  {
+    cout << "HI" << endl;
+    return;
+  }
+  
+  sleep_for.tv_sec = period->tv_sec - elapsed->tv_sec;
+  sleep_for.tv_nsec = period->tv_nsec - elapsed->tv_nsec;
+
+  if (sleep_for.tv_nsec < 0)
+  {
+    --sleep_for.tv_sec; 
+    sleep_for.tv_nsec = MAX_NSEC_IN_TIMEVAL + sleep_for.tv_nsec;
+  }
+  
+  cout << sleep_for.tv_sec << ' ' << sleep_for.tv_nsec << endl;
+  nanosleep(&sleep_for, NULL);
+}
 
 int main()
 {
@@ -22,17 +59,14 @@ int main()
 
 void do_loop()
 {
+  timespec period;
+  period.tv_sec = 2;
+  period.tv_nsec = 0;
+  
   while (true)
   {
     // record current time
     timespec started, finished;
-    clock_gettime(CLOCK_REALTIME, &started);
-    
-    /** 
-     * prepare for select() - some of this code can be put 
-     * in larger scope, e.g. timespec, as pselect does not
-     * modify it
-     **/
 
     // here it does not matter if the standard input is ready,
     // if not, we will block
@@ -42,21 +76,22 @@ void do_loop()
 
     if (c == 'c')
     {
+      clock_gettime(CLOCK_REALTIME, &started);
+
       // do regular processing (quick) - copy from async branch
 
-      // check how much time we have taken - pselect() call
-      // and also processing above are in a way sporadic events
       clock_gettime(CLOCK_REALTIME, &finished);
 
       // wait for some time (if needed), to preserve periodicity
-      
+
+      timespec elapsed;
+      elapsed.tv_sec = finished.tv_sec - started.tv_sec;
+      elapsed.tv_nsec = finished.tv_nsec - started.tv_nsec;
       cout << "SLEEPING" << endl;
-      timespec sleep_for;
-      sleep_for.tv_sec = 2;
-      sleep_for.tv_nsec = 0;
-      nanosleep(&sleep_for, NULL);
+      preserve_period(&period, &elapsed);
       
-      // TODO does nanosleep reinvokes itself on being interrupted?
+      // TODO does nanosleep reinvoke itself on
+      // being interrupted?
       continue;
     }
     if (c == 'w')
