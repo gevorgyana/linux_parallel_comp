@@ -181,11 +181,10 @@ int main() {
       FD_SET(my_fds[i], &reads);
     }
 
-    int ret_;
     if (prompt_flag) // in this case it is desirable to
                      // preserve periodicity
     {
-      // TODO something else? - nanosleep sleeps for more than needed
+      // TODO something else? - nanosleep sleeps for more than needed. why????
       timespec started, finished, elapsed;
       clock_gettime(CLOCK_REALTIME, &started);
       nanosleep(&period, NULL);
@@ -200,7 +199,7 @@ int main() {
       cout << elapsed.tv_sec << ' ' << elapsed.tv_nsec << endl;
     }
     
-    ret_ = pselect(nfd, &reads, NULL, NULL, NULL, NULL);
+    pselect(nfd, &reads, NULL, NULL, NULL, NULL);
     
     for (int i = 0; i < n; i++) {
 
@@ -257,13 +256,108 @@ int main() {
           // special case
           // if possible, show results (if function is ready
           // to be calculated immediately); if not, report which
-          // one is not ready yet
-          std::cout << "QUIT" << std::endl;
+          // one is not ready yet !!!!! TODO
 
-          // exit here - no need to break
+          // refresh info about children processes
 
+          cout << "I" << endl;
+          FD_ZERO(&reads);
+          for (int i = 0; i < n; ++i) {
 
+            // have already read response -> leave it alone
+            if (results[i] >= 0) {
+              continue;
+            }
 
+            FD_SET(my_fds[i], &reads);
+          }
+
+          cout << "II" << endl;
+
+          /**
+           * WHY DO I NEED TO PROVIDE THIS TIMESPEC ARGUMENT? 
+           * I THOUGH IT WILL EXECUTE AND RETURN IMMEDIATELY,
+           * BUT IT HANGS
+          */
+          
+          timespec dummy_ts;
+          dummy_ts.tv_sec = 0;
+          dummy_ts.tv_nsec = 0;
+          
+          pselect(nfd, &reads, NULL, NULL, &dummy_ts, NULL);
+
+          cout << "III" << endl;
+          
+          for (int i = 0; i < n; i++) {
+
+            // already remembered or not ready to read
+            if ((results[i] >= 0) ||
+                !(FD_ISSET(my_fds[i], &reads)))
+              continue;
+
+            // safe to read here - no blocking
+            ans a;
+            int ret_val = read(my_fds[i], &a, sizeof(ans));
+
+            if (ret_val > 0) {
+        
+              if (a.value == 0) {
+                std::cout << "NULL" << std::endl;
+                for (int j = 0; j < n; ++j) {
+                  kill(children_pids[j], SIGTERM);
+                }
+                exit(1);
+              }
+
+              results[i] = a.value;
+              ++ready_cnt;
+            }
+          }
+
+          cout << "IV" << endl;
+
+          bool can_report_before_quitting = true;
+          
+          for (int i = 0; i < n && can_report_before_quitting; ++i)
+          {
+            can_report_before_quitting =
+                can_report_before_quitting && (results[i] >= 0);
+          }
+
+          cout << "V" << endl;
+
+          if (can_report_before_quitting)
+          {
+            for (int j = 0; j < n; ++j) {
+              kill(children_pids[j], SIGTERM);
+            }
+
+            for (int i = 0; i < n; ++i) {
+              std::cout << results[i] << std::endl;
+            }
+            exit(1);
+            
+          }
+          cout << "VI" << endl;
+          
+
+          cout << "System was not able to calculate the result."
+               << endl
+               << "The following values are not yet known:"
+               << endl;
+          for (int j = 0; j < n; ++j)
+          {
+            if (results[j] == -1)
+            {
+              cout << "Function #"
+                   << j << endl;
+            }
+          }
+          
+          for (int j = 0; j < n; ++j) {
+            kill(children_pids[j], SIGTERM);
+          }
+          exit(1);
           
         }
         else if (control_char == 'w')
@@ -279,14 +373,18 @@ int main() {
     std::cout << results[i] << std::endl;
   }
 
-  // unblock signals from children
   sigprocmask(SIG_UNBLOCK, &sigset, NULL);
 
+  // TODO remove signal handlers - you block
+  // every SIGCHLD on initialization! no need to handle
+  // these signals, as you wait for every child here
+  // check that and if valid, remove hadlers!!!
   int pid;
   while ((pid = wait(NULL)) > 0) {
     std::cout << "main waited for " << pid << std::endl;
     continue;
   }
+  
   return 0;
 }
 
