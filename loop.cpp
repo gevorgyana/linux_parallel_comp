@@ -1,4 +1,3 @@
-// c headers
 #include <aio.h>
 #include <fcntl.h>
 #include <signal.h>
@@ -7,25 +6,27 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-// cpp headers
+
 #include <iostream>
 #include <unordered_map>
-// relative headers
+
 #include "handlers.hpp"
-// append a number to this string and you get the filepath
-#define FIFO_TEMPLATE "/home/i516739/fifo"
+
+#define FIFO_TEMPLATE "/tmp/fifo"
+
 // n is the number of children
 #define n 3
-// struct that a child recieves
+
+// seconds
+#define SLEEP_FOR 2
+
 struct msg {
   int value;
 };
-// struct that a parent sends
+
 struct ans {
   int value;
 };
-
-#define LOG
 
 /**
  * currenly not used - for setting tty raw mode
@@ -42,6 +43,12 @@ void enableRawMode() {
   raw.c_lflag &= ~(ECHO);
   tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
+
+  // TODO set the terminal to raw mode - so that
+  // I can read single characters
+  // for now, read one character from tty,
+  // attached to the current process
+
 */
 
 int main() {
@@ -51,12 +58,7 @@ int main() {
   sigaddset(&sigset, SIGCHLD);
   sigprocmask(SIG_BLOCK, &sigset, NULL);
 
-  // TODO set the terminal to raw mode - so that
-  // I can read single characters
-  // for now, read one character from tty,
-  // attached to the current process
-
-  // these hold file descriptors for FIFOs
+  // this holds file descriptors for FIFOs
   int my_fds[n];
 
   // this holds process ids ofchildren processes
@@ -65,25 +67,16 @@ int main() {
   // signal handler for catching zombies
   signal(SIGCHLD, HReapZombies);
 
-  // todo: maybe no sense in calling this?
-  // umask(0);
+  // TODO: maybe no sense in calling this?
+  umask(0);
 
-  // pipe for synchronisation - when
-  // all children close it, we
-  // can read EOF in the main process => works as
-  // a kind of a barrier
+  // slef-pipe trick
   int pfd[2];
   pipe(pfd);
-
-  // dummy variable to read from synchronisation pipe
   int dummy_var;
-#ifdef LOG
-  std::cout << "CREATED PIPE" << std::endl;
-#endif
 
   for (int i = 0; i < n; ++i) {
-    // SETUP PART
-
+    
     // TODO: do it in current directory instead
     std::string str = FIFO_TEMPLATE + std::to_string(i);
 
@@ -102,8 +95,7 @@ int main() {
 
     int success = fork();
     if (success == 0) {
-      // close read end - see comment
-      // above about synchronization pipe
+      
       close(pfd[0]);
 
       // read data from parent
@@ -111,8 +103,8 @@ int main() {
       msg my_msg;
       read(fd, &my_msg, sizeof(msg));
 
-      // ready to report that we have finished - see comment
-      // above about synchronization pipe
+      // slef-pipe trick - after this we can read
+      // the results from parent process
       close(pfd[1]);
 
       // useful work here
@@ -127,22 +119,14 @@ int main() {
 
       _exit(0);
     }
-#ifdef LOG
-    std::cout << "AFTER FORK " << std::endl;
-#endif
-    // remember the pid, we will need it
+    
     children_pids[i] = success;
   }
 
-  // MAIN BLOCK
-
-  // close fd to synchronise yourself with children -
-  // see comment above about synchronization pipe
-
+  // self-pipe trick - synh yourself with child processes
   close(pfd[1]);
 
   // wait for children to finish reading
-  // what they have to read
   if (read(pfd[0], &dummy_var, sizeof(int)) < 0) {
     std::cout << "=== error reading in from sync pipe === " << std::endl;
   }
@@ -153,33 +137,28 @@ int main() {
   // how many children have reported
   int ready_cnt = 0;
 
-  // ready or not to break the loop?
+  // ready to break the loop or not?
   int ready_flag = 0;
 
-  // for select system call:
-
-  // sigset we will watch
+  // sigset we will use to wait for input
+  // from pipes
   fd_set reads;
 
   // optimization parameter for select
-  // set to max value of all file descriptors
-  // that we are watching + 1
   int nfd = 0;
   for (int i = 0; i < n; ++i) {
     nfd = (nfd > my_fds[i] ? nfd : my_fds[i]);
   }
   ++nfd;
-#ifdef LOG
-  std::cout << "NFD VALUE: " << nfd << std::endl;
-#endif
 
-  // TODO remove this? what is it for?
+  // TODO remove this? 
   for (int i = 0; i < n; ++i) {
     results[i] = -1;
   }
 
+  // period for sleeping in between processing and user prompt
   timespec period;
-  period.tv_sec = 2;
+  period.tv_sec = SLEEP_FOR;
   period.tv_nsec = 0;
 
   bool prompt_flag = true;
@@ -206,14 +185,23 @@ int main() {
     if (prompt_flag) // in this case it is desirable to
                      // preserve periodicity
     {
-      // TODO something else?
+      // TODO something else? - nanosleep sleeps for more than needed
+      timespec started, finished, elapsed;
+      clock_gettime(CLOCK_REALTIME, &started);
       nanosleep(&period, NULL);
+      clock_gettime(CLOCK_REALTIME, &finished);
+      elapsed.tv_sec = finished.tv_sec - started.tv_sec;
+      elapsed.tv_nsec = finished.tv_nsec - started.tv_nsec;
+      if (elapsed.tv_nsec < 0)
+      {
+        --elapsed.tv_sec;
+        elapsed.tv_nsec = 999999999 + elapsed.tv_nsec;
+      }
+      cout << elapsed.tv_sec << ' ' << elapsed.tv_nsec << endl;
     }
     
-    ret_ = pselect(nfd, &reads, NULL, NULL, NULL, &sigset);
+    ret_ = pselect(nfd, &reads, NULL, NULL, NULL, NULL);
     
-
-    // DO APPLICATION LOGIC
     for (int i = 0; i < n; i++) {
 
       // already remembered or not ready to read
@@ -239,7 +227,8 @@ int main() {
       }
     }
 
-    if (ready_cnt == n)
+    if (ready_cnt == n) // break from the main loop, as
+                        // the manager has completed its task
       break;
 
     if (prompt_flag)
@@ -250,7 +239,7 @@ int main() {
         std::cout
             << "Please tell me what you want to do."
             << std::endl
-            << "(c - contirnue)"
+            << "(c - continue)"
             << std::endl
             << "(w - continue w/o prompt)"
             << std::endl
@@ -272,12 +261,16 @@ int main() {
           std::cout << "QUIT" << std::endl;
 
           // exit here - no need to break
+
+
+
+          
         }
         else if (control_char == 'w')
         {
           prompt_flag = false;
           break;
-        }        
+        }
       }      
     }
   }
