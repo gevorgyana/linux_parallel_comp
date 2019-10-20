@@ -29,6 +29,47 @@ struct message_to_child {
   int value;
 };
 
+void Report(const int* results)
+{
+  // calculate minimum of the return
+  // values that we have
+  unsigned int imin_result;
+  for (int i = 0; i < n; ++i) {
+    if (i == 0)
+    {
+      imin_result = results[i];
+      continue;
+    }
+    imin_result = (imin_result < results[i] ? imin_result : results[i]);
+  }
+
+  printf("The answer: %u\n\r", imin_result);
+}
+
+void StopChildProcesses(const int* children_pids)
+{
+  for (int j = 0; j < n; ++j) {
+    kill(children_pids[j], SIGTERM);
+  }
+}
+
+void RefreshReadFds(fd_set* reads,
+                         const int* my_fds,
+                         const int* results)
+{
+  // refresh info about children processes
+  FD_ZERO(reads);
+  for (int i = 0; i < n; ++i) {
+
+    // have already read response
+    if (results[i] >= 0) {
+      continue;
+    }
+
+    FD_SET(my_fds[i], reads);
+  }
+}
+
 // return value retrieved from children
 // is stored in this struct
 struct message_from_child {
@@ -70,6 +111,43 @@ void PrepareTerminal()
 
   // on exit, restore original settings
   atexit(RestoreTerminalSettings);
+}
+
+// TODO prettify this mess and TODO rename parameters
+void ProcessDataQuickly(int nfd, int* results,
+                        fd_set* reads, const int* my_fds,
+                        int* children_pids, int* ready_cnt)
+{
+  // withoud setting up such a dummy timespec pselect
+  // does not return immediately
+  struct timespec immediately;
+  immediately.tv_sec = 0;
+  immediately.tv_nsec = 0;      
+  pselect(nfd, reads, NULL, NULL, &immediately, NULL);
+          
+  for (int i = 0; i < n; i++) {
+
+    // already remembered or not ready to read
+    if ((results[i] >= 0) ||
+        !(FD_ISSET(my_fds[i], reads)))
+      continue;
+
+    struct message_from_child response;
+            
+    if (read(my_fds[i], &response, sizeof(struct message_from_child)) > 0) {
+        
+      if (response.value == 0) { // short-circuit
+        printf("NULL\n\r");
+        for (int j = 0; j < n; ++j) {
+          kill(children_pids[j], SIGTERM);
+        }
+        exit(1);
+      }
+
+      results[i] = response.value;
+      ++(*ready_cnt);
+    }
+  }
 }
 
 int main() {
@@ -209,17 +287,7 @@ int main() {
   while (true)
   {
 
-    // prepare file descriptors of interest
-    FD_ZERO(&reads);
-    for (int i = 0; i < n; ++i) {
-
-      // have already read response
-      if (results[i] >= 0) {
-        continue;
-      }
-
-      FD_SET(my_fds[i], &reads);
-    }
+    RefreshReadFds(&reads, my_fds, results);
 
     if (prompt_flag) // in this case it is desirable to
                      // preserve periodicity
@@ -228,30 +296,7 @@ int main() {
       nanosleep(&period, NULL);
     }
     
-    pselect(nfd, &reads, NULL, NULL, NULL, NULL);
-    
-    for (int i = 0; i < n; i++) {
-
-      // already remembered or not ready to read
-      if ((results[i] >= 0) || !(FD_ISSET(my_fds[i], &reads)))
-        continue;
-
-      struct message_from_child response;
-      
-      if (read(my_fds[i], &response, sizeof(struct message_from_child)) > 0) {
-        
-        if (response.value == 0) { // short-circuit
-          printf("NULL\n\r");
-          for (int j = 0; j < n; ++j) {
-            kill(children_pids[j], SIGTERM);
-          }
-          exit(1);
-        }
-
-        results[i] = response.value;
-        ++ready_cnt;
-      }
-    }
+    ProcessDataQuickly(nfd, results, &reads, my_fds, children_pids, &ready_cnt);
 
     if (ready_cnt == n) // break from the main loop, as
                         // the manager has completed its task
@@ -276,51 +321,10 @@ int main() {
         }
         else if (control_char == 'q')
         {
+          RefreshReadFds(&reads, my_fds, results);
+
+          ProcessDataQuickly(nfd, results, &reads, my_fds, children_pids, &ready_cnt);
           
-          // refresh info about children processes
-          FD_ZERO(&reads);
-          for (int i = 0; i < n; ++i) {
-
-            // have already read response
-            if (results[i] >= 0) {
-              continue;
-            }
-
-            FD_SET(my_fds[i], &reads);
-          }
-
-          // withoud setting up such a dummy timespec pselect
-          // does not return immediately
-          struct timespec immediately;
-          immediately.tv_sec = 0;
-          immediately.tv_nsec = 0;
-          
-          pselect(nfd, &reads, NULL, NULL, &immediately, NULL);
-          
-          for (int i = 0; i < n; i++) {
-
-            // already remembered or not ready to read
-            if ((results[i] >= 0) ||
-                !(FD_ISSET(my_fds[i], &reads)))
-              continue;
-
-            struct message_from_child response;
-            
-            if (read(my_fds[i], &response, sizeof(struct message_from_child)) > 0) {
-        
-              if (response.value == 0) { // short-circuit
-                printf("NULL\n\r");
-                for (int j = 0; j < n; ++j) {
-                  kill(children_pids[j], SIGTERM);
-                }
-                exit(1);
-              }
-
-              results[i] = response.value;
-              ++ready_cnt;
-            }
-          }
-
           bool can_report_before_quitting = true;
           
           for (int i = 0; i < n && can_report_before_quitting; ++i)
@@ -331,13 +335,8 @@ int main() {
 
           if (can_report_before_quitting)
           {
-            for (int j = 0; j < n; ++j) {
-              kill(children_pids[j], SIGTERM);
-            }
-
-            for (int i = 0; i < n; ++i) {
-              printf("%u\n\r", results[i]);
-            }
+            StopChildProcesses(children_pids);
+            Report(results);
             exit(1);
           }
 
@@ -351,9 +350,7 @@ int main() {
             }
           }
           
-          for (int j = 0; j < n; ++j) {
-            kill(children_pids[j], SIGTERM);
-          }
+          StopChildProcesses(children_pids);
           exit(1);
           
         }
@@ -366,9 +363,7 @@ int main() {
     }
   }
 
-  for (int i = 0; i < n; ++i) {
-    printf("%u\n\r", results[i]);
-  }
+  Report(results);
 
   sigprocmask(SIG_UNBLOCK, &sigset, NULL);
   
