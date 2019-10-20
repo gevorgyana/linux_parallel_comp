@@ -6,15 +6,17 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <termios.h>
 
 #include <iostream>
 #include <unordered_map>
 
 #include "handlers.hpp"
 
+// used to generate fifos in /tmp directory
 #define FIFO_TEMPLATE "/tmp/fifo"
 
-// n is the number of children
+// number of children
 #define n 3
 
 // seconds
@@ -28,30 +30,40 @@ struct ans {
   int value;
 };
 
-/**
- * currenly not used - for setting tty raw mode
- *
-struct termios orig_termios;
-void disableRawMode() {
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+
+// original terminal settings,
+// will be restored when the application
+// exits normally
+struct termios original_settings;
+
+void RestoreTerminalSettings()
+{
+  tcsetattr(STDIN_FILENO, TCSANOW, &original_settings);
 }
 
-void enableRawMode() {
-  tcgetattr(STDIN_FILENO, &orig_termios);
-  atexit(disableRawMode);
-  struct termios raw = orig_termios;
-  raw.c_lflag &= ~(ECHO);
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+void PrepapreTerminal()
+{
+  // store previous settings
+  tcgetattr(STDIN_FILENO, &original_settings);
+
+  // disable echoing and enable char-by-char reading
+  termios temp_termios;
+  temp_termios.c_lflag &= (~ICANON);
+  temp_termios.c_cc[VMIN] = 1;
+  temp_termios.c_cc[VTIME] = 0;
+  temp_termios.c_lflag &= (~ECHO);
+  temp_termios.c_oflag &= (~OPOST);
+
+  // apply new settings immediately
+  tcsetattr(STDIN_FILENO, TCSANOW, &temp_termios);
+
+  // just in case we press C-C while running
+  atexit(RestoreTerminalSettings);
 }
-
-  // TODO set the terminal to raw mode - so that
-  // I can read single characters
-  // for now, read one character from tty,
-  // attached to the current process
-
-*/
 
 int main() {
+  PrepapreTerminal();
+  
   // signal mask for SIGCHLD
   sigset_t sigset;
   sigemptyset(&sigset);
@@ -67,7 +79,8 @@ int main() {
   // signal handler for catching zombies
   signal(SIGCHLD, HReapZombies);
 
-  // TODO: maybe no sense in calling this?
+  // processes in the group need write permissions
+  // in case the process umask forbids it TODO ????
   umask(0);
 
   // slef-pipe trick
@@ -80,9 +93,7 @@ int main() {
     // TODO: do it in current directory instead
     std::string str = FIFO_TEMPLATE + std::to_string(i);
 
-    // TODO: use other permissions, we just create
-    // regular file in current diirectory (we will do so)
-    mkfifo(str.c_str(), S_IRUSR | S_IWUSR | S_IWGRP);
+    mkfifo(str.c_str(), S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP);
 
     // open fifo to read from it later
     int rfd = open(str.c_str(), O_RDONLY | O_NONBLOCK);
@@ -128,7 +139,7 @@ int main() {
 
   // wait for children to finish reading
   if (read(pfd[0], &dummy_var, sizeof(int)) < 0) {
-    std::cout << "=== error reading in from sync pipe === " << std::endl;
+    std::cout << "=== error reading in from sync pipe === " << "\n\r";
   }
 
   // return values from children
@@ -164,7 +175,6 @@ int main() {
   bool prompt_flag = true;
 
   using std::cout;
-  using std::endl;
   
   while (true)
   {
@@ -196,7 +206,7 @@ int main() {
         --elapsed.tv_sec;
         elapsed.tv_nsec = 999999999 + elapsed.tv_nsec;
       }
-      cout << elapsed.tv_sec << ' ' << elapsed.tv_nsec << endl;
+      cout << elapsed.tv_sec << ' ' << elapsed.tv_nsec << "\n\r";
     }
     
     pselect(nfd, &reads, NULL, NULL, NULL, NULL);
@@ -214,7 +224,7 @@ int main() {
       if (ret_val > 0) {
         
         if (a.value == 0) {
-          std::cout << "NULL" << std::endl;
+          std::cout << "NULL" << "\n\r";
           for (int j = 0; j < n; ++j) {
             kill(children_pids[j], SIGTERM);
           }
@@ -237,19 +247,19 @@ int main() {
       {
         std::cout
             << "Please tell me what you want to do."
-            << std::endl
+            << "\n\r"
             << "(c - continue)"
-            << std::endl
+            << "\n\r"
             << "(w - continue w/o prompt)"
-            << std::endl
+            << "\n\r"
             << "(q - quit)"
-            << std::endl;
+            << "\n\r";
                                                              
         std::cin >> control_char; // blocking here
         
         if (control_char == 'c')
         {
-         break;
+          break;
         }
         else if (control_char == 'q')
         {
@@ -260,7 +270,7 @@ int main() {
 
           // refresh info about children processes
 
-          cout << "I" << endl;
+          cout << "I" << "\n\r";
           FD_ZERO(&reads);
           for (int i = 0; i < n; ++i) {
 
@@ -272,7 +282,7 @@ int main() {
             FD_SET(my_fds[i], &reads);
           }
 
-          cout << "II" << endl;
+          cout << "II" << "\n\r";
 
           /**
            * WHY DO I NEED TO PROVIDE THIS TIMESPEC ARGUMENT? 
@@ -286,7 +296,7 @@ int main() {
           
           pselect(nfd, &reads, NULL, NULL, &dummy_ts, NULL);
 
-          cout << "III" << endl;
+          cout << "III" << "\n\r";
           
           for (int i = 0; i < n; i++) {
 
@@ -302,7 +312,7 @@ int main() {
             if (ret_val > 0) {
         
               if (a.value == 0) {
-                std::cout << "NULL" << std::endl;
+                std::cout << "NULL" << "\n\r";
                 for (int j = 0; j < n; ++j) {
                   kill(children_pids[j], SIGTERM);
                 }
@@ -314,7 +324,7 @@ int main() {
             }
           }
 
-          cout << "IV" << endl;
+          cout << "IV" << "\n\r";
 
           bool can_report_before_quitting = true;
           
@@ -324,7 +334,7 @@ int main() {
                 can_report_before_quitting && (results[i] >= 0);
           }
 
-          cout << "V" << endl;
+          cout << "V" << "\n\r";
 
           if (can_report_before_quitting)
           {
@@ -333,24 +343,24 @@ int main() {
             }
 
             for (int i = 0; i < n; ++i) {
-              std::cout << results[i] << std::endl;
+              std::cout << results[i] << "\n\r";
             }
             exit(1);
             
           }
-          cout << "VI" << endl;
+          cout << "VI" << "\n\r";
           
 
           cout << "System was not able to calculate the result."
-               << endl
+               << "\n\r"
                << "The following values are not yet known:"
-               << endl;
+               << "\n\r";
           for (int j = 0; j < n; ++j)
           {
             if (results[j] == -1)
             {
               cout << "Function #"
-                   << j << endl;
+                   << j << "\n\r";
             }
           }
           
@@ -370,7 +380,7 @@ int main() {
   }
 
   for (int i = 0; i < n; ++i) {
-    std::cout << results[i] << std::endl;
+    std::cout << results[i] << "\n\r";
   }
 
   sigprocmask(SIG_UNBLOCK, &sigset, NULL);
@@ -381,7 +391,7 @@ int main() {
   // check that and if valid, remove hadlers!!!
   int pid;
   while ((pid = wait(NULL)) > 0) {
-    std::cout << "main waited for " << pid << std::endl;
+    std::cout << "main waited for " << pid << "\n\r";
     continue;
   }
   
