@@ -18,23 +18,22 @@
 #define FIFO_TEMPLATE "/tmp/fifo%d"
 
 // number of children
-#define n 3
+#define n 2
 
 // sleep seconds
-#define SLEEP_FOR 2
+#define SLEEP_FOR_SEC 2
+#define SLEEP_FOR_NSEC 0
 
 // message passed to children
-struct msg {
+struct message_to_child {
   int value;
 };
 
 // return value retrieved from children
 // is stored in this struct
-struct ans {
+struct message_from_child {
   int value;
 };
-
-// TODO remove all c++ features and comile wih c compiler
 
 /** 
  * original terminal settings,
@@ -128,8 +127,8 @@ int main() {
 
     // send a messge to a child
     int wfd = open(fifo_filepath, O_WRONLY);
-    struct msg msg_ = {1};
-    write(wfd, &msg_, sizeof(struct msg));
+    struct message_to_child msg_ = {1};
+    write(wfd, &msg_, sizeof(struct message_to_child));
 
     int success = fork();
     
@@ -139,20 +138,18 @@ int main() {
 
       // read data from parent
       int fd = open(fifo_filepath, O_RDONLY);
-      struct msg my_msg;
-      read(fd, &my_msg, sizeof(struct msg));
+      struct message_to_child my_msg;
+      read(fd, &my_msg, sizeof(struct message_to_child));
 
       // synchronization pipe - after this we can read
       // the results from parent process
       close(pfd[1]);
-
-      // TODO Introduce real function here
       
       // useful work here
       // sleep(2 * i + 2);
 
       // reponse
-      struct ans a;
+      struct message_from_child a;
       
       switch(i)
       {
@@ -165,7 +162,7 @@ int main() {
       }
 
       int wdf = open(fifo_filepath, O_WRONLY);
-      write(wdf, &a, sizeof(struct ans));
+      write(wdf, &a, sizeof(struct message_from_child));
 
       _exit(0);
     }
@@ -199,7 +196,6 @@ int main() {
   }
   ++nfd;
 
-  // TODO remove this? of course, once you do something serious!!!
   for (int i = 0; i < n; ++i) {
     results[i] = -1;
   }
@@ -207,8 +203,8 @@ int main() {
   // this timespec specifies how much manager should sleep
   // in between processing and user prompt
   struct timespec period;
-  period.tv_sec = SLEEP_FOR;
-  period.tv_nsec = 0;
+  period.tv_sec = SLEEP_FOR_SEC;
+  period.tv_nsec = SLEEP_FOR_NSEC;
 
   // if true, manager should enable prompting
   bool prompt_flag = true;
@@ -243,8 +239,8 @@ int main() {
       if ((results[i] >= 0) || !(FD_ISSET(my_fds[i], &reads)))
         continue;
 
-      struct ans a;
-      int ret_val = read(my_fds[i], &a, sizeof(struct ans));
+      struct message_from_child a;
+      int ret_val = read(my_fds[i], &a, sizeof(struct message_from_child));
 
       if (ret_val > 0) {
         
@@ -312,8 +308,8 @@ int main() {
                 !(FD_ISSET(my_fds[i], &reads)))
               continue;
 
-            struct ans a;
-            int ret_val = read(my_fds[i], &a, sizeof(struct ans));
+            struct message_from_child a;
+            int ret_val = read(my_fds[i], &a, sizeof(struct message_from_child));
 
             if (ret_val > 0) {
         
