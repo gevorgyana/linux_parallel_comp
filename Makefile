@@ -1,6 +1,5 @@
 all:
-	g++ -c -g main.cpp handlers.cpp functions.cpp
-	g++ *.o -o app
+	cc -g main.c handlers.c -I./include -L./lib -llab1 -o app
 
 clean:
 	rm *.o app
