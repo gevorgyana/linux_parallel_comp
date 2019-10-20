@@ -7,33 +7,40 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <termios.h>
+#include <stdio.h>
+#include <time.h>
+#include <stdlib.h>
 
-#include <iostream>
-#include <unordered_map>
-
-#include "handlers.hpp"
+#include "handlers.h"
+#include "demofuncs.h"
 
 // used to generate fifos in /tmp directory
-#define FIFO_TEMPLATE "/tmp/fifo"
+#define FIFO_TEMPLATE "/tmp/fifo%d"
 
 // number of children
 #define n 3
 
-// seconds
+// sleep seconds
 #define SLEEP_FOR 2
 
+// message passed to children
 struct msg {
   int value;
 };
 
+// return value retrieved from children
+// is stored in this struct
 struct ans {
   int value;
 };
 
+// TODO remove all c++ features and comile wih c compiler
 
-// original terminal settings,
-// will be restored when the application
-// exits normally
+/** 
+ * original terminal settings,
+ * will be restored when the application
+ * exits normally
+ */
 struct termios original_settings;
 
 void RestoreTerminalSettings()
@@ -46,113 +53,143 @@ void PrepapreTerminal()
   // store previous settings
   tcgetattr(STDIN_FILENO, &original_settings);
 
-  // disable echoing and enable char-by-char reading
-  termios temp_termios;
+  // disable echoing and line-by-line reading
+  struct termios temp_termios;
   temp_termios.c_lflag &= (~ICANON);
   temp_termios.c_cc[VMIN] = 1;
   temp_termios.c_cc[VTIME] = 0;
   temp_termios.c_lflag &= (~ECHO);
+
+  /**
+   * By default, newline character is converted to '\n\r'
+   * In non-canonical mode, this is no longer desirable
+   */
   temp_termios.c_oflag &= (~OPOST);
 
   // apply new settings immediately
   tcsetattr(STDIN_FILENO, TCSANOW, &temp_termios);
 
-  // just in case we press C-C while running
+  // on exit, restore original settings
   atexit(RestoreTerminalSettings);
 }
 
 int main() {
+  // f_func_imin(0);
+  
   PrepapreTerminal();
   
-  // signal mask for SIGCHLD
+  /**
+   * signal mask for SIGCHLD - need to prevent
+   * this signal from interrupting certaing operating 
+   * like sleeping or waiting for file descriptors 
+   * to become available with select()
+   */
   sigset_t sigset;
   sigemptyset(&sigset);
   sigaddset(&sigset, SIGCHLD);
   sigprocmask(SIG_BLOCK, &sigset, NULL);
 
-  // this holds file descriptors for FIFOs
+  // holds file descriptors for FIFOs
   int my_fds[n];
 
-  // this holds process ids ofchildren processes
+  // holds process ids of children processes
   int children_pids[n];
 
   // signal handler for catching zombies
   signal(SIGCHLD, HReapZombies);
 
-  // processes in the group need write permissions
-  // in case the process umask forbids it TODO ????
+  /**
+   * processes in the group need write permissions;
+   * default umask value prevents giving write
+   * permissions to group
+   */
   umask(0);
 
-  // slef-pipe trick
+  /**
+   * Synchronization pipe works as a kind of barrier:
+   * when every process closes their write end,
+   * the parent stops blocking on the pipe and
+   * in this way synchronizes itself with children
+   */
   int pfd[2];
   pipe(pfd);
   int dummy_var;
 
   for (int i = 0; i < n; ++i) {
     
-    // TODO: do it in current directory instead
-    std::string str = FIFO_TEMPLATE + std::to_string(i);
+    char fifo_filepath[sizeof(FIFO_TEMPLATE) + 10];
+    snprintf(fifo_filepath, sizeof(FIFO_TEMPLATE) + 10, FIFO_TEMPLATE, (unsigned int) i);
 
-    mkfifo(str.c_str(), S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP);
+    mkfifo(fifo_filepath, S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP);
 
-    // open fifo to read from it later
-    int rfd = open(str.c_str(), O_RDONLY | O_NONBLOCK);
+    // open FIFO to read from it later
+    int rfd = open(fifo_filepath, O_RDONLY | O_NONBLOCK);
     my_fds[i] = rfd;
 
     // send a messge to a child
-    int wfd = open(str.c_str(), O_WRONLY);
-    msg yo_msg = {1};
-    write(wfd, &yo_msg, sizeof(msg));
+    int wfd = open(fifo_filepath, O_WRONLY);
+    struct msg msg_ = {1};
+    write(wfd, &msg_, sizeof(struct msg));
 
     int success = fork();
+    
     if (success == 0) {
       
       close(pfd[0]);
 
       // read data from parent
-      int fd = open(str.c_str(), O_RDONLY);
-      msg my_msg;
-      read(fd, &my_msg, sizeof(msg));
+      int fd = open(fifo_filepath, O_RDONLY);
+      struct msg my_msg;
+      read(fd, &my_msg, sizeof(struct msg));
 
-      // slef-pipe trick - after this we can read
+      // synchronization pipe - after this we can read
       // the results from parent process
       close(pfd[1]);
 
+      // TODO Introduce real function here
+      
       // useful work here
-      sleep(2 * i + 2);
+      // sleep(2 * i + 2);
 
       // reponse
-      ans a;
-      a.value = i + 1;
+      struct ans a;
+      
+      switch(i)
+      {
+        case 0:
+          a.value = f_func_imin(0);
+          break;
+        case 1:
+          a.value = g_func_imin(0);
+          break;
+      }
 
-      int wdf = open(str.c_str(), O_WRONLY);
-      write(wdf, &a, sizeof(ans));
+      int wdf = open(fifo_filepath, O_WRONLY);
+      write(wdf, &a, sizeof(struct ans));
 
       _exit(0);
     }
-    
+
+    // remember pid of a child
     children_pids[i] = success;
   }
 
-  // self-pipe trick - synh yourself with child processes
+  // close write fd of synchronization pipe
   close(pfd[1]);
-
-  // wait for children to finish reading
+  
+  // wait for children to finish reading - when they finish,
+  // this call returns
   if (read(pfd[0], &dummy_var, sizeof(int)) < 0) {
-    std::cout << "=== error reading in from sync pipe === " << "\n\r";
+    printf("=== error reading in from sync pipe === \n\r");
   }
 
-  // return values from children
+  // return values from children processes
   int results[n];
 
   // how many children have reported
   int ready_cnt = 0;
 
-  // ready to break the loop or not?
-  int ready_flag = 0;
-
-  // sigset we will use to wait for input
-  // from pipes
+  // sigset we will use to wait for input from pipes
   fd_set reads;
 
   // optimization parameter for select
@@ -162,28 +199,28 @@ int main() {
   }
   ++nfd;
 
-  // TODO remove this? 
+  // TODO remove this? of course, once you do something serious!!!
   for (int i = 0; i < n; ++i) {
     results[i] = -1;
   }
 
-  // period for sleeping in between processing and user prompt
-  timespec period;
+  // this timespec specifies how much manager should sleep
+  // in between processing and user prompt
+  struct timespec period;
   period.tv_sec = SLEEP_FOR;
   period.tv_nsec = 0;
 
+  // if true, manager should enable prompting
   bool prompt_flag = true;
-
-  using std::cout;
   
   while (true)
   {
-      
+
     // prepare file descriptors of interest
     FD_ZERO(&reads);
     for (int i = 0; i < n; ++i) {
 
-      // have already read response -> leave it alone
+      // have already read response
       if (results[i] >= 0) {
         continue;
       }
@@ -194,19 +231,8 @@ int main() {
     if (prompt_flag) // in this case it is desirable to
                      // preserve periodicity
     {
-      // TODO something else? - nanosleep sleeps for more than needed. why????
-      timespec started, finished, elapsed;
-      clock_gettime(CLOCK_REALTIME, &started);
+      // TODO why does nanosleep sleep for more than needed?
       nanosleep(&period, NULL);
-      clock_gettime(CLOCK_REALTIME, &finished);
-      elapsed.tv_sec = finished.tv_sec - started.tv_sec;
-      elapsed.tv_nsec = finished.tv_nsec - started.tv_nsec;
-      if (elapsed.tv_nsec < 0)
-      {
-        --elapsed.tv_sec;
-        elapsed.tv_nsec = 999999999 + elapsed.tv_nsec;
-      }
-      cout << elapsed.tv_sec << ' ' << elapsed.tv_nsec << "\n\r";
     }
     
     pselect(nfd, &reads, NULL, NULL, NULL, NULL);
@@ -217,14 +243,13 @@ int main() {
       if ((results[i] >= 0) || !(FD_ISSET(my_fds[i], &reads)))
         continue;
 
-      // safe to read here - no blocking
-      ans a;
-      int ret_val = read(my_fds[i], &a, sizeof(ans));
+      struct ans a;
+      int ret_val = read(my_fds[i], &a, sizeof(struct ans));
 
       if (ret_val > 0) {
         
-        if (a.value == 0) {
-          std::cout << "NULL" << "\n\r";
+        if (a.value == 0) { // short-circuit
+          printf("NULL\n\r");
           for (int j = 0; j < n; ++j) {
             kill(children_pids[j], SIGTERM);
           }
@@ -245,36 +270,26 @@ int main() {
       char control_char;
       while (true)
       {
-        std::cout
-            << "Please tell me what you want to do."
-            << "\n\r"
-            << "(c - continue)"
-            << "\n\r"
-            << "(w - continue w/o prompt)"
-            << "\n\r"
-            << "(q - quit)"
-            << "\n\r";
-                                                             
-        std::cin >> control_char; // blocking here
+        printf("Please tell me what you want to do.\n\r");
+        printf("(c - continue)\n\r");
+        printf("(w - continue w/o prompt)\n\r");
+        printf("(q - quit)\n\r");
         
+        scanf("%c", &control_char); // blocking here -> manager does not change its
+                                     // status and waits for user to tell what to do
+
         if (control_char == 'c')
         {
           break;
         }
         else if (control_char == 'q')
         {
-          // special case
-          // if possible, show results (if function is ready
-          // to be calculated immediately); if not, report which
-          // one is not ready yet !!!!! TODO
-
+          
           // refresh info about children processes
-
-          cout << "I" << "\n\r";
           FD_ZERO(&reads);
           for (int i = 0; i < n; ++i) {
 
-            // have already read response -> leave it alone
+            // have already read response
             if (results[i] >= 0) {
               continue;
             }
@@ -282,21 +297,13 @@ int main() {
             FD_SET(my_fds[i], &reads);
           }
 
-          cout << "II" << "\n\r";
-
-          /**
-           * WHY DO I NEED TO PROVIDE THIS TIMESPEC ARGUMENT? 
-           * I THOUGH IT WILL EXECUTE AND RETURN IMMEDIATELY,
-           * BUT IT HANGS
-          */
+          // withoud setting up such a dummy timespec pselect
+          // does not return immediately
+          struct timespec immediately;
+          immediately.tv_sec = 0;
+          immediately.tv_nsec = 0;
           
-          timespec dummy_ts;
-          dummy_ts.tv_sec = 0;
-          dummy_ts.tv_nsec = 0;
-          
-          pselect(nfd, &reads, NULL, NULL, &dummy_ts, NULL);
-
-          cout << "III" << "\n\r";
+          pselect(nfd, &reads, NULL, NULL, &immediately, NULL);
           
           for (int i = 0; i < n; i++) {
 
@@ -305,14 +312,13 @@ int main() {
                 !(FD_ISSET(my_fds[i], &reads)))
               continue;
 
-            // safe to read here - no blocking
-            ans a;
-            int ret_val = read(my_fds[i], &a, sizeof(ans));
+            struct ans a;
+            int ret_val = read(my_fds[i], &a, sizeof(struct ans));
 
             if (ret_val > 0) {
         
-              if (a.value == 0) {
-                std::cout << "NULL" << "\n\r";
+              if (a.value == 0) { // short-circuit
+                printf("NULL\n\r");
                 for (int j = 0; j < n; ++j) {
                   kill(children_pids[j], SIGTERM);
                 }
@@ -324,8 +330,6 @@ int main() {
             }
           }
 
-          cout << "IV" << "\n\r";
-
           bool can_report_before_quitting = true;
           
           for (int i = 0; i < n && can_report_before_quitting; ++i)
@@ -334,8 +338,6 @@ int main() {
                 can_report_before_quitting && (results[i] >= 0);
           }
 
-          cout << "V" << "\n\r";
-
           if (can_report_before_quitting)
           {
             for (int j = 0; j < n; ++j) {
@@ -343,24 +345,18 @@ int main() {
             }
 
             for (int i = 0; i < n; ++i) {
-              std::cout << results[i] << "\n\r";
+              printf("%u\n\r", results[i]);
             }
             exit(1);
-            
           }
-          cout << "VI" << "\n\r";
-          
 
-          cout << "System was not able to calculate the result."
-               << "\n\r"
-               << "The following values are not yet known:"
-               << "\n\r";
+          printf("System was not able to calculate the result.\n\r");
+          printf("The following values are not yet known:\n\r");
           for (int j = 0; j < n; ++j)
           {
             if (results[j] == -1)
             {
-              cout << "Function #"
-                   << j << "\n\r";
+              printf("Function #%u\n\r", j);
             }
           }
           
@@ -380,18 +376,14 @@ int main() {
   }
 
   for (int i = 0; i < n; ++i) {
-    std::cout << results[i] << "\n\r";
+    printf("%u\n\r", results[i]);
   }
 
   sigprocmask(SIG_UNBLOCK, &sigset, NULL);
-
-  // TODO remove signal handlers - you block
-  // every SIGCHLD on initialization! no need to handle
-  // these signals, as you wait for every child here
-  // check that and if valid, remove hadlers!!!
+  
   int pid;
   while ((pid = wait(NULL)) > 0) {
-    std::cout << "main waited for " << pid << "\n\r";
+    printf("main waiter for %u", pid);
     continue;
   }
   
