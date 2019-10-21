@@ -1,32 +1,31 @@
 #include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <unistd.h>
-#include <stdio.h>
 #include <time.h>
-#include <stdlib.h>
+#include <unistd.h>
 
 #include "common.h"
+#include "demofuncs.h"
 #include "funcs.h"
 #include "handlers.h"
-#include "demofuncs.h"
 
 // TODO create table with test cases as the task says to do
 
-/** 
+/**
  * original terminal settings,
  * will be restored when the application
  * exits normally
  */
 
-void run_test_case(int test_case_id)
-{  
+void run_test_case(int test_case_id) {
   PrepareTerminal();
-  
+
   /**
    * signal mask for SIGCHLD - need to prevent
    * this signal from interrupting function calls
-   * like sleeping or waiting for file descriptors 
+   * like sleeping or waiting for file descriptors
    * to become available with select()
    */
   sigset_t sigset;
@@ -64,7 +63,8 @@ void run_test_case(int test_case_id)
 
     // prepare filepath of FIFO
     char fifo_filepath[sizeof(FIFO_TEMPLATE) + 10];
-    snprintf(fifo_filepath, sizeof(FIFO_TEMPLATE) + 10, FIFO_TEMPLATE, (unsigned int) i);
+    snprintf(fifo_filepath, sizeof(FIFO_TEMPLATE) + 10, FIFO_TEMPLATE,
+             (unsigned int)i);
 
     mkfifo(fifo_filepath, S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP);
 
@@ -78,9 +78,9 @@ void run_test_case(int test_case_id)
     write(wfd, &msg_, sizeof(struct message_to_child));
 
     int success = fork();
-    
+
     if (success == 0) {
-      
+
       close(pfd[0]);
 
       // read data from parent
@@ -94,15 +94,14 @@ void run_test_case(int test_case_id)
 
       // reponse
       struct message_from_child response;
-      
-      switch(i)
-      {
-        case 0:
-          response.value = f_func_imin(test_case_id);
-          break;
-        case 1:
-          response.value = g_func_imin(test_case_id);
-          break;
+
+      switch (i) {
+      case 0:
+        response.value = f_func_imin(test_case_id);
+        break;
+      case 1:
+        response.value = g_func_imin(test_case_id);
+        break;
       }
 
       int wdf = open(fifo_filepath, O_WRONLY);
@@ -117,7 +116,7 @@ void run_test_case(int test_case_id)
 
   // close write end of synchronization pipe
   close(pfd[1]);
-  
+
   // wait for children to finish reading - when
   // they finish, this call returns
   if (read(pfd[0], &dummy_var, sizeof(int)) < 0) {
@@ -152,58 +151,52 @@ void run_test_case(int test_case_id)
 
   // if true, manager should enable prompting
   bool prompt_flag = true;
-  
-  while (true)
-  {
+
+  while (true) {
 
     RefreshReadFds(&reads, my_fds, results);
 
     if (prompt_flag) // in this case it is desirable to
-      // preserve periodicity
+                     // preserve periodicity
     {
       // TODO why does nanosleep sleeps for more than needed?
       nanosleep(&period, NULL);
     }
-    
+
     ProcessDataQuickly(nfd, results, &reads, my_fds, children_pids, &ready_cnt);
 
     if (ready_cnt == n) // break from the main loop, as
       // the manager has completed its task
       break;
 
-    if (prompt_flag)
-    {
+    if (prompt_flag) {
       char control_char;
-      while (true)
-      {
+      while (true) {
         printf("Please tell me what you want to do.\n\r");
         printf("(c - continue)\n\r");
         printf("(w - continue w/o prompt)\n\r");
         printf("(q - quit)\n\r");
-        
-        scanf("%c", &control_char); // blocking here -> manager does not change its
+
+        scanf("%c",
+              &control_char); // blocking here -> manager does not change its
         // status and waits for user to tell what to do
 
-        if (control_char == 'c')
-        {
+        if (control_char == 'c') {
           break;
-        }
-        else if (control_char == 'q')
-        {
+        } else if (control_char == 'q') {
           RefreshReadFds(&reads, my_fds, results);
 
-          ProcessDataQuickly(nfd, results, &reads, my_fds, children_pids, &ready_cnt);
-          
+          ProcessDataQuickly(nfd, results, &reads, my_fds, children_pids,
+                             &ready_cnt);
+
           bool can_report_before_quitting = true;
-          
-          for (int i = 0; i < n && can_report_before_quitting; ++i)
-          {
+
+          for (int i = 0; i < n && can_report_before_quitting; ++i) {
             can_report_before_quitting =
                 can_report_before_quitting && (results[i] >= 0);
           }
 
-          if (can_report_before_quitting)
-          {
+          if (can_report_before_quitting) {
             StopChildProcesses(children_pids);
             Report(results);
             exit(1);
@@ -211,31 +204,27 @@ void run_test_case(int test_case_id)
 
           printf("System was not able to calculate the result.\n\r");
           printf("The following values are not yet known:\n\r");
-          for (int j = 0; j < n; ++j)
-          {
-            if (results[j] == -1)
-            {
+          for (int j = 0; j < n; ++j) {
+            if (results[j] == -1) {
               printf("Function #%u\n\r", j);
             }
           }
-          
+
           StopChildProcesses(children_pids);
           exit(1);
-          
-        }
-        else if (control_char == 'w')
-        {
+
+        } else if (control_char == 'w') {
           prompt_flag = false;
           break;
         }
-      }      
+      }
     }
   }
 
   Report(results);
 
   sigprocmask(SIG_UNBLOCK, &sigset, NULL);
-  
+
   int pid;
   while ((pid = wait(NULL)) > 0) {
     printf("main waiter for %u", pid);
@@ -243,9 +232,7 @@ void run_test_case(int test_case_id)
   }
 }
 
-int main()
-{
+int main() {
   printf("running test case #%d\n\r", 0);
   run_test_case(0);
 }
-

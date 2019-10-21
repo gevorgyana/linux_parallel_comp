@@ -1,20 +1,18 @@
-#include "common.h"
 #include "funcs.h"
+#include "common.h"
 
-#include <termios.h>
-#include <stdio.h>
 #include <signal.h>
-#include <unistd.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <termios.h>
+#include <unistd.h>
 
-void Report(const int* results)
-{
+void Report(const int *results) {
   // calculate minimum of the return
   // values that we have
   unsigned int imin_result;
   for (int i = 0; i < n; ++i) {
-    if (i == 0)
-    {
+    if (i == 0) {
       imin_result = results[i];
       continue;
     }
@@ -24,17 +22,13 @@ void Report(const int* results)
   printf("The answer: %u\n\r", imin_result);
 }
 
-void StopChildProcesses(const int* children_pids)
-{
+void StopChildProcesses(const int *children_pids) {
   for (int j = 0; j < n; ++j) {
     kill(children_pids[j], SIGTERM);
   }
 }
 
-void RefreshReadFds(fd_set* reads,
-                         const int* my_fds,
-                         const int* results)
-{
+void RefreshReadFds(fd_set *reads, const int *my_fds, const int *results) {
   // refresh info about children processes
   FD_ZERO(reads);
   for (int i = 0; i < n; ++i) {
@@ -48,14 +42,11 @@ void RefreshReadFds(fd_set* reads,
   }
 }
 
-
-void RestoreTerminalSettings()
-{
+void RestoreTerminalSettings() {
   tcsetattr(STDIN_FILENO, TCSANOW, &original_settings);
 }
 
-void PrepareTerminal()
-{
+void PrepareTerminal() {
   // store previous settings
   tcgetattr(STDIN_FILENO, &original_settings);
 
@@ -80,28 +71,25 @@ void PrepareTerminal()
 }
 
 // TODO prettify this mess and TODO rename parameters
-void ProcessDataQuickly(int nfd, int* results,
-                        fd_set* reads, const int* my_fds,
-                        int* children_pids, int* ready_cnt)
-{
+void ProcessDataQuickly(int nfd, int *results, fd_set *reads, const int *my_fds,
+                        int *children_pids, int *ready_cnt) {
   // withoud setting up such a dummy timespec pselect
   // does not return immediately
   struct timespec immediately;
   immediately.tv_sec = 0;
-  immediately.tv_nsec = 0;      
+  immediately.tv_nsec = 0;
   pselect(nfd, reads, NULL, NULL, &immediately, NULL);
-          
+
   for (int i = 0; i < n; i++) {
 
     // already remembered or not ready to read
-    if ((results[i] >= 0) ||
-        !(FD_ISSET(my_fds[i], reads)))
+    if ((results[i] >= 0) || !(FD_ISSET(my_fds[i], reads)))
       continue;
 
     struct message_from_child response;
-            
+
     if (read(my_fds[i], &response, sizeof(struct message_from_child)) > 0) {
-        
+
       if (response.value == 0) { // short-circuit
         printf("NULL\n\r");
         for (int j = 0; j < n; ++j) {
