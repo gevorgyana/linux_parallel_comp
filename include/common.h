@@ -21,17 +21,15 @@ struct message_to_child;
 struct message_from_child;
 */
 
-struct message_to_child
-{
+struct message_to_child {
   int value;
 };
 
-struct message_from_child
-{
+struct message_from_child {
   int value;
 };
 
-/** 
+/**
  * original terminal settings,
  * will be restored when the application
  * exits normally

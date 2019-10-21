@@ -1,20 +1,18 @@
-#include "common.h"
 #include "funcs.h"
+#include "common.h"
 
-#include <termios.h>
-#include <stdio.h>
 #include <signal.h>
-#include <unistd.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <termios.h>
+#include <unistd.h>
 
-void report(const int* results)
-{
+void report(const int *results) {
   // calculate minimum of the return
   // values that we have
   unsigned int imin_result;
   for (int i = 0; i < n; ++i) {
-    if (i == 0)
-    {
+    if (i == 0) {
       imin_result = results[i];
       continue;
     }
@@ -24,20 +22,17 @@ void report(const int* results)
   printf("The answer: %u\n\r", imin_result);
 }
 
-void stop_child_processes(const int* children_pids)
-{
+void stop_child_processes(const int *children_pids) {
   for (int j = 0; j < n; ++j) {
     kill(children_pids[j], SIGTERM);
   }
 }
 
-void restore_terminal_settings()
-{
+void restore_terminal_settings() {
   tcsetattr(STDIN_FILENO, TCSANOW, &original_settings);
 }
 
-void prepare_terminal()
-{
+void prepare_terminal() {
   // store previous settings
   tcgetattr(STDIN_FILENO, &original_settings);
 

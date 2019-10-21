@@ -3,11 +3,9 @@
 #include <stdio.h>
 #include <sys/wait.h>
 
-void HReapZombies(int dummy)
-{
+void HReapZombies(int dummy) {
   int atom;
-  while ((atom = wait(NULL)) > 0)
-    {
-      continue;
-    }
+  while ((atom = wait(NULL)) > 0) {
+    continue;
+  }
 }
