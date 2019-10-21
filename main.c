@@ -20,10 +20,8 @@
  * exits normally
  */
 
-
 void run_test_case(int test_case_id)
 {
-  
     prepare_terminal();
     
     /**
@@ -143,7 +141,6 @@ void run_test_case(int test_case_id)
     fd_set reads;
 
     // optimization parameter for select
-
     int nfd = 0;
     for (int i = 0; i < n; ++i) {
       nfd = (nfd > my_fds[i] ? nfd : my_fds[i]);
@@ -155,7 +152,7 @@ void run_test_case(int test_case_id)
     }
 
     while (true) {
-
+      
       // prepare file descriptors of interest
       FD_ZERO(&reads);
       for (int i = 0; i < n; ++i) {
@@ -168,10 +165,8 @@ void run_test_case(int test_case_id)
         FD_SET(my_fds[i], &reads);
       }
 
-      // init file descriptors to watch them
       FD_SET(STDIN_FILENO, &reads);
 
-      // do select
       int ret_ = pselect(nfd, &reads, NULL, NULL, NULL, &sigset);
 
       // someone wants to report
@@ -182,10 +177,6 @@ void run_test_case(int test_case_id)
 
         if (c == 'q') {
 
-          // the user wanted to quit
-          // but maybe we can repotr ot him now?
-          // let's check that
-
           bool can_report_before_quitting = true;
 
           for (int i = 0; i < n && can_report_before_quitting; ++i) {
@@ -194,14 +185,11 @@ void run_test_case(int test_case_id)
           }
 
           if (can_report_before_quitting) {
-            for (int j = 0; j < n; ++j) {
-              kill(children_pids[j], SIGTERM);
-            }
-
-            for (int i = 0; i < n; ++i) {
-              printf("%d\n", results[i]);
-            }
-
+            
+            stop_child_processes(children_pids);
+            
+            report(results);
+            
             // exit with closing all
             // fds that were open automatically
             exit(1);
@@ -223,11 +211,10 @@ void run_test_case(int test_case_id)
         // safe to read here - no blocking
         struct message_from_child a;
         int ret_val = read(my_fds[i], &a, sizeof(struct message_from_child));
-
-        // app logic
+        
         if (ret_val > 0) {
-          if (a.value == 0) {
-            printf("NULL\n");
+          if (a.value == 0) { // short-circuit
+            printf("NULL\n\r");
 
             for (int j = 0; j < n; ++j) {
               kill(children_pids[j], SIGTERM);
@@ -241,7 +228,7 @@ void run_test_case(int test_case_id)
       }
 
       if (ready_cnt == n) // break from the main loop, as
-        // the manager has completed its task
+                          // the manager has completed its task
         break;
     }
 
@@ -252,12 +239,9 @@ void run_test_case(int test_case_id)
 
     int pid;
     while ((pid = wait(NULL)) > 0) {
-
       printf("main waited for %d\n", pid);
       continue;
     }
-
-  
 }
 
 int main()

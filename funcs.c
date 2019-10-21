@@ -31,24 +31,6 @@ void stop_child_processes(const int* children_pids)
   }
 }
 
-void refresh_read_fds(fd_set* reads,
-                         const int* my_fds,
-                         const int* results)
-{
-  // refresh info about children processes
-  FD_ZERO(reads);
-  for (int i = 0; i < n; ++i) {
-
-    // have already read response
-    if (results[i] >= 0) {
-      continue;
-    }
-
-    FD_SET(my_fds[i], reads);
-  }
-}
-
-
 void restore_terminal_settings()
 {
   tcsetattr(STDIN_FILENO, TCSANOW, &original_settings);
@@ -77,41 +59,4 @@ void prepare_terminal()
 
   // on exit, restore original settings
   atexit(restore_terminal_settings);
-}
-
-// TODO prettify this mess and TODO rename parameters
-void process_data_quickly(int nfd, int* results,
-                        fd_set* reads, const int* my_fds,
-                        int* children_pids, int* ready_cnt)
-{
-  // withoud setting up such a dummy timespec pselect
-  // does not return immediately
-  struct timespec immediately;
-  immediately.tv_sec = 0;
-  immediately.tv_nsec = 0;      
-  pselect(nfd, reads, NULL, NULL, &immediately, NULL);
-          
-  for (int i = 0; i < n; i++) {
-
-    // already remembered or not ready to read
-    if ((results[i] >= 0) ||
-        !(FD_ISSET(my_fds[i], reads)))
-      continue;
-
-    struct message_from_child response;
-            
-    if (read(my_fds[i], &response, sizeof(struct message_from_child)) > 0) {
-        
-      if (response.value == 0) { // short-circuit
-        printf("NULL\n\r");
-        for (int j = 0; j < n; ++j) {
-          kill(children_pids[j], SIGTERM);
-        }
-        exit(1);
-      }
-
-      results[i] = response.value;
-      ++(*ready_cnt);
-    }
-  }
 }
