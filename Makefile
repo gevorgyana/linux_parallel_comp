@@ -1,6 +1,4 @@
 all:
-	cc -c -g main.c handlers.c
-	gcc *.o -o app
-
+	cc -g main.c handlers.c funcs.c  -I./include -L./lib -llab1 -o app
 clean:
 	rm *.o app
