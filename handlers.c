@@ -1,6 +1,6 @@
-#include "handlers.hpp"
+#include "handlers.h"
 
-#include <iostream>
+#include <stdio.h>
 #include <sys/wait.h>
 
 void HReapZombies(int dummy)
@@ -8,7 +8,7 @@ void HReapZombies(int dummy)
   int atom;
   while ((atom = wait(NULL)) > 0)
     {
-      std::cout << "unsafe hit " << atom << std::endl;
+      printf("unsafe hit %u\n", atom);
       continue;
     }
 }

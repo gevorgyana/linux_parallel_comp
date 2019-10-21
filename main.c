@@ -1,22 +1,23 @@
-// c headers
-#include <aio.h>
-#include <fcntl.h>
-#include <signal.h>
 #include <sys/select.h>
+#include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-// cpp headers
-#include <iostream>
-#include <unordered_map>
+#include <stdio.h>
+#include <time.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
 // relative headers
-#include "handlers.hpp"
-// append a number to this string and you get the filepath
-#define FIFO_TEMPLATE "/home/i516739/fifo"
+#include "handlers.h"
+
+// used to generate fifos in /tmp directory
+#define FIFO_TEMPLATE "/tmp/fifo%d"
+
 // n is the number of children
-#define n 3
-// struct that a child recieves
+#define n 2
+
+// struct that a child receives
 struct msg {
   int value;
 };
@@ -24,25 +25,6 @@ struct msg {
 struct ans {
   int value;
 };
-
-#define LOG
-
-/**
- * currenly not used - for setting tty raw mode
- *
-struct termios orig_termios;
-void disableRawMode() {
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
-}
-
-void enableRawMode() {
-  tcgetattr(STDIN_FILENO, &orig_termios);
-  atexit(disableRawMode);
-  struct termios raw = orig_termios;
-  raw.c_lflag &= ~(ECHO);
-  tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
-}
-*/
 
 int main() {
   // signal mask for SIGCHLD
@@ -65,40 +47,27 @@ int main() {
   // signal handler for catching zombies
   signal(SIGCHLD, HReapZombies);
 
-  // todo: maybe no sense in calling this?
-  // umask(0);
+  umask(0);
 
-  // pipe for synchronisation - when
-  // all children close it, we
-  // can read EOF in the main process => works as
-  // a kind of a barrier
   int pfd[2];
   pipe(pfd);
-
-  // dummy variable to read from synchronisation pipe
   int dummy_var;
-#ifdef LOG
-  std::cout << "CREATED PIPE" << std::endl;
-#endif
 
   for (int i = 0; i < n; ++i) {
-    // SETUP PART
+    // prepare filepath of FIFO
+    char fifo_filepath[sizeof(FIFO_TEMPLATE) + 10];
+    snprintf(fifo_filepath, sizeof(FIFO_TEMPLATE) + 10, FIFO_TEMPLATE, (unsigned int) i);
 
-    // TODO: do it in current directory instead
-    std::string str = FIFO_TEMPLATE + std::to_string(i);
-
-    // TODO: use other permissions, we just create
-    // regular file in current diirectory (we will do so)
-    mkfifo(str.c_str(), S_IRUSR | S_IWUSR | S_IWGRP);
+    mkfifo(fifo_filepath, S_IRUSR | S_IWUSR | S_IWGRP);
 
     // open fifo to read from it later
-    int rfd = open(str.c_str(), O_RDONLY | O_NONBLOCK);
+    int rfd = open(fifo_filepath, O_RDONLY | O_NONBLOCK);
     my_fds[i] = rfd;
 
     // send a messge to a child
-    int wfd = open(str.c_str(), O_WRONLY);
-    msg yo_msg = {1};
-    write(wfd, &yo_msg, sizeof(msg));
+    int wfd = open(fifo_filepath, O_WRONLY);
+    struct msg yo_msg = {1};
+    write(wfd, &yo_msg, sizeof(struct msg));
 
     int success = fork();
     if (success == 0) {
@@ -107,9 +76,9 @@ int main() {
       close(pfd[0]);
 
       // read data from parent
-      int fd = open(str.c_str(), O_RDONLY);
-      msg my_msg;
-      read(fd, &my_msg, sizeof(msg));
+      int fd = open(fifo_filepath, O_RDONLY);
+      struct msg my_msg;
+      read(fd, &my_msg, sizeof(struct msg));
 
       // ready to report that we have finished - see comment
       // above about synchronization pipe
@@ -119,7 +88,7 @@ int main() {
       sleep(2 * i + 2);
 
       // reponse
-      ans a;
+      struct ans a;
       a.value = i + 1;
 
       /**
@@ -130,17 +99,14 @@ int main() {
        if (i == 1) {
          a.value = 0;
        }
-
        */
-
-      int wdf = open(str.c_str(), O_WRONLY);
-      write(wdf, &a, sizeof(ans));
+      
+      int wdf = open(fifo_filepath, O_WRONLY);
+      write(wdf, &a, sizeof(struct ans));
 
       _exit(0);
     }
-#ifdef LOG
-    std::cout << "AFTER FORK " << std::endl;
-#endif
+    
     // remember the pid, we will need it
     children_pids[i] = success;
   }
@@ -155,7 +121,7 @@ int main() {
   // wait for children to finish reading
   // what they have to read
   if (read(pfd[0], &dummy_var, sizeof(int)) < 0) {
-    std::cout << "=== error reading in from sync pipe === " << std::endl;
+    printf("=== error reading in from sync pipe === \n");
   }
 
   // return values from children
@@ -180,11 +146,7 @@ int main() {
     nfd = (nfd > my_fds[i] ? nfd : my_fds[i]);
   }
   ++nfd;
-#ifdef LOG
-  std::cout << "NFD VALUE: " << nfd << std::endl;
-#endif
 
-  // TODO remove this? what is it for?
   for (int i = 0; i < n; ++i) {
     results[i] = -1;
   }
@@ -195,7 +157,7 @@ int main() {
     FD_ZERO(&reads);
     for (int i = 0; i < n; ++i) {
 
-      // have already read response -> leave it alone
+      // have already read response
       if (results[i] >= 0) {
         continue;
       }
@@ -208,31 +170,14 @@ int main() {
 
     // do select
     int ret_ = pselect(nfd, &reads, NULL, NULL, NULL, &sigset);
-#ifdef LOG
-
-    // show return value
-    std::cout << "--RETVAL" << ret_ << std::endl;
-#endif
-
-    // for every file descriptor, show their status
-    for (int i = 0; i < n; ++i) {
-#ifdef LOG
-      std::cout << "IS_SET (T/F): " << FD_ISSET(my_fds[i], &reads) << std::endl;
-#endif
-    }
 
     // someone wants to report
     if (FD_ISSET(STDIN_FILENO, &reads)) {
 
-#ifdef LOG
-      std::cout << "LISTENING" << std::endl;
-#endif
-
-      // ready to read, do it!
       char c;
-      std::cin >> c;
+      scanf("%c", &c);
 
-      if (c == 'q') { // user wanted to quit
+      if (c == 'q') {
 
         // the user wanted to quit
         // but maybe we can repotr ot him now?
@@ -245,33 +190,19 @@ int main() {
               can_report_before_quitting && (results[i] >= 0);
         }
 
-        if (can_report_before_quitting) { // just do it
-
-#ifdef LOG
-          std::cout << "===WAS ABLE TO TELL THE RESULTS" << std::endl;
-#endif
-          // send SIGTERM to children and exit
+        if (can_report_before_quitting) {
           for (int j = 0; j < n; ++j) {
             kill(children_pids[j], SIGTERM);
           }
 
-          // print results
           for (int i = 0; i < n; ++i) {
-            std::cout << results[i] << std::endl;
+            printf("%d\n", results[i]);
           }
 
           // exit with closing all
           // fds that were open automatically
           exit(1);
         }
-
-        // TODO send SIGTERM or something else
-        // that gets handled automatically for NOW;
-        // LATER write a handler for children to quit nicely
-
-#ifdef LOG
-        std::cout << "===TERMINATE EVERYTHING! " << std::endl;
-#endif
 
         for (int j = 0; j < n; ++j) {
           kill(children_pids[j], SIGTERM);
@@ -287,32 +218,19 @@ int main() {
         continue;
 
       // safe to read here - no blocking
-      ans a;
-      int ret_val = read(my_fds[i], &a, sizeof(ans));
+      struct ans a;
+      int ret_val = read(my_fds[i], &a, sizeof(struct ans));
 
       // app logic
       if (ret_val > 0) {
         if (a.value == 0) {
-#ifdef LOG
-          std::cout << "===SHORT CIRCUIT EVALUATION" << std::endl;
-#endif
-          std::cout << "NULL" << std::endl;
-
-          // TODO teminate here nively - same as above - change this
-          // to something better
-#ifdef LOG
-          std::cout << "===TERMINATE EVERYTHING! " << std::endl;
-#endif
+          printf("NULL\n");
 
           for (int j = 0; j < n; ++j) {
             kill(children_pids[j], SIGTERM);
           }
           exit(1);
         }
-
-#ifdef LOG
-        std::cout << "===USUAL PROCESSING " << std::endl;
-#endif
 
         results[i] = a.value;
         ++ready_cnt;
@@ -322,19 +240,10 @@ int main() {
     if (ready_cnt == n)
       ready_flag = 1;
 
-#ifdef LOG
-    std::cout << "===score for next iteration " << ready_cnt
-              << std::endl;
-#endif
-
   }
 
-#ifdef LOG
-  std::cout << "==REPORT FINAL RESULTS; WERE ABLE TO FINISH" << std::endl;
-#endif
-
   for (int i = 0; i < n; ++i) {
-    std::cout << results[i] << std::endl;
+    printf("%d\n", results[i]);
   }
 
   // unblock signals from children
@@ -342,7 +251,8 @@ int main() {
 
   int pid;
   while ((pid = wait(NULL)) > 0) {
-    std::cout << "main waited for " << pid << std::endl;
+
+    printf("main waited for %d\n", pid);
     continue;
   }
   return 0;
