@@ -19,10 +19,8 @@
  * exits normally
  */
 
-//struct termios original_settings;
-
-int main() {
-  
+void run_test_case(int test_case_id)
+{  
   PrepareTerminal();
   
   /**
@@ -100,10 +98,10 @@ int main() {
       switch(i)
       {
         case 0:
-          response.value = f_func_imin(0);
+          response.value = f_func_imin(test_case_id);
           break;
         case 1:
-          response.value = g_func_imin(0);
+          response.value = g_func_imin(test_case_id);
           break;
       }
 
@@ -161,7 +159,7 @@ int main() {
     RefreshReadFds(&reads, my_fds, results);
 
     if (prompt_flag) // in this case it is desirable to
-                     // preserve periodicity
+      // preserve periodicity
     {
       // TODO why does nanosleep sleeps for more than needed?
       nanosleep(&period, NULL);
@@ -170,7 +168,7 @@ int main() {
     ProcessDataQuickly(nfd, results, &reads, my_fds, children_pids, &ready_cnt);
 
     if (ready_cnt == n) // break from the main loop, as
-                        // the manager has completed its task
+      // the manager has completed its task
       break;
 
     if (prompt_flag)
@@ -184,7 +182,7 @@ int main() {
         printf("(q - quit)\n\r");
         
         scanf("%c", &control_char); // blocking here -> manager does not change its
-                                    // status and waits for user to tell what to do
+        // status and waits for user to tell what to do
 
         if (control_char == 'c')
         {
@@ -243,7 +241,10 @@ int main() {
     printf("main waiter for %u", pid);
     continue;
   }
-  
-  return 0;
+}
+
+int main()
+{
+  run_test_case(0);
 }
 
