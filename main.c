@@ -22,6 +22,8 @@
 
 void run_test_case(int test_case_id)
 {
+  printf("press \"q\" to exit\n\r");
+  
     prepare_terminal();
     
     /**
@@ -246,6 +248,7 @@ void run_test_case(int test_case_id)
 
 int main()
 {
+  printf("running test case #%d\n\r", 0);
   run_test_case(0);
   return 0;
 }
