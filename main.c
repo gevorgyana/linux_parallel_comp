@@ -193,27 +193,16 @@ void run_test_case(int test_case_id) {
           return;
         }
 
-        printf("Unable to calculate imin()\n\r");
-        printf("Reason: \n\r");
+        printf("System was not able to calculate the result.\n\r");
+        printf("The following values are not yet known:\n\r");
+        for (int j = 0; j < n; ++j) {
+          if (results[j] == -1) {
+            printf("Function #%u\n\r", j);
+          }
+        }
         
         for (int j = 0; j < n; ++j) {
-          
           kill(children_pids[j], SIGTERM);
-          
-          if (results[j] < 0)
-          {
-            char func_code;
-            switch (j)
-            {
-              case 0:
-                func_code = 'f';
-                break;
-              case 1:
-                func_code = 'g';
-            }
-
-            printf("%c is not ready\n\r", func_code);
-          }
         }
 
         restore_terminal_settings();
