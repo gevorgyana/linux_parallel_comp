@@ -16,6 +16,7 @@ void report(const int *results) {
       imin_result = results[i];
       continue;
     }
+    
     imin_result = (imin_result < results[i] ? imin_result : results[i]);
   }
 
@@ -51,7 +52,4 @@ void prepare_terminal() {
 
   // apply new settings immediately
   tcsetattr(STDIN_FILENO, TCSANOW, &temp_termios);
-
-  // on exit, restore original settings
-  atexit(restore_terminal_settings);
 }

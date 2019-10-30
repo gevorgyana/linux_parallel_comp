@@ -12,8 +12,6 @@
 #include "funcs.h"
 #include "handlers.h"
 
-// TODO create table with test cases as the task says to do
-
 /**
  * original terminal settings,
  * will be restored when the application
@@ -57,9 +55,8 @@ void run_test_case(int test_case_id) {
 
   /**
    * Synchronization pipe works as a kind of barrier:
-   * when every process closes their write end,
-   * the parent stops blocking on the pipe and
-   * in this way synchronizes itself with children
+   * until every process closes their write end,
+   * the parent is blocked trying to read from the pipe
    */
 
   int pfd[2];
@@ -116,6 +113,7 @@ void run_test_case(int test_case_id) {
       int wdf = open(fifo_filepath, O_WRONLY);
       write(wdf, &response, sizeof(struct message_from_child));
 
+      // avoid calling atexit()-registered functions here
       _exit(0);
     }
 
@@ -191,15 +189,35 @@ void run_test_case(int test_case_id) {
 
           report(results);
 
-          // exit with closing all
-          // fds that were open automatically
-          exit(1);
+          restore_terminal_settings();
+          return;
         }
 
+        printf("Unable to calculate imin()\n\r");
+        printf("Reason: \n\r");
+        
         for (int j = 0; j < n; ++j) {
+          
           kill(children_pids[j], SIGTERM);
+          
+          if (results[j] < 0)
+          {
+            char func_code;
+            switch (j)
+            {
+              case 0:
+                func_code = 'f';
+                break;
+              case 1:
+                func_code = 'g';
+            }
+
+            printf("%c is not ready\n\r", func_code);
+          }
         }
-        exit(1);
+
+        restore_terminal_settings();
+        return;
       }
     }
 
@@ -215,12 +233,15 @@ void run_test_case(int test_case_id) {
 
       if (ret_val > 0) {
         if (a.value == 0) { // short-circuit
-          printf("NULL\n\r");
+
+          printf("0\n\r");
 
           for (int j = 0; j < n; ++j) {
             kill(children_pids[j], SIGTERM);
           }
-          exit(1);
+
+          restore_terminal_settings();
+          return;
         }
 
         results[i] = a.value;
@@ -243,10 +264,31 @@ void run_test_case(int test_case_id) {
     printf("main waited for %d\n", pid);
     continue;
   }
+
+  restore_terminal_settings();
 }
 
 int main() {
-  printf("running test case #%d\n\r", 0);
-  run_test_case(0);
+
+  int opcode;
+  char msg[64] = {
+    "Enter test number (-1 to exit)\n"
+  };
+      
+  while (true)
+  {
+    printf("%s", msg);
+    scanf("%d", &opcode);
+
+    if (opcode == -1)
+    {
+      break;
+    }
+    
+    printf("running test case #%d\n", opcode);
+    run_test_case(opcode);
+    printf("\n");
+  }
+  
   return 0;
 }
