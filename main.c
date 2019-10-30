@@ -11,8 +11,6 @@
 #include "funcs.h"
 #include "handlers.h"
 
-// TODO create table with test cases as the task says to do
-
 /**
  * original terminal settings,
  * will be restored when the application
@@ -20,7 +18,7 @@
  */
 
 void run_test_case(int test_case_id) {
-  PrepareTerminal();
+  prepare_terminal();
 
   /**
    * signal mask for SIGCHLD - need to prevent
@@ -51,9 +49,8 @@ void run_test_case(int test_case_id) {
 
   /**
    * Synchronization pipe works as a kind of barrier:
-   * when every process closes their write end,
-   * the parent stops blocking on the pipe and
-   * in this way synchronizes itself with children
+   * until every process closes their write end,
+   * the parent is blocked trying to read from the pipe
    */
   int pfd[2];
   pipe(pfd);
@@ -74,6 +71,7 @@ void run_test_case(int test_case_id) {
 
     // send a messge to a child
     int wfd = open(fifo_filepath, O_WRONLY);
+    
     struct message_to_child msg_ = {1};
     write(wfd, &msg_, sizeof(struct message_to_child));
 
@@ -106,7 +104,8 @@ void run_test_case(int test_case_id) {
 
       int wdf = open(fifo_filepath, O_WRONLY);
       write(wdf, &response, sizeof(struct message_from_child));
-
+      
+      // avoid calling atexit()-registered functions here
       _exit(0);
     }
 
@@ -154,16 +153,21 @@ void run_test_case(int test_case_id) {
 
   while (true) {
 
-    RefreshReadFds(&reads, my_fds, results);
+    refresh_read_fds(&reads, my_fds, results);
 
     if (prompt_flag) // in this case it is desirable to
                      // preserve periodicity
     {
-      // TODO why does nanosleep sleeps for more than needed?
+      // TODO why does nanosleep sleep for more than needed?
       nanosleep(&period, NULL);
     }
 
-    ProcessDataQuickly(nfd, results, &reads, my_fds, children_pids, &ready_cnt);
+    if (process_data_quickly(nfd, results, &reads, my_fds, children_pids, &ready_cnt))
+    {
+      stop_child_processes(children_pids);
+      restore_terminal_settings();
+      return;
+    }
 
     if (ready_cnt == n) // break from the main loop, as
       // the manager has completed its task
@@ -177,16 +181,16 @@ void run_test_case(int test_case_id) {
         printf("(w - continue w/o prompt)\n\r");
         printf("(q - quit)\n\r");
 
-        scanf("%c",
+        scanf(" %c",
               &control_char); // blocking here -> manager does not change its
         // status and waits for user to tell what to do
 
         if (control_char == 'c') {
           break;
         } else if (control_char == 'q') {
-          RefreshReadFds(&reads, my_fds, results);
+          refresh_read_fds(&reads, my_fds, results);
 
-          ProcessDataQuickly(nfd, results, &reads, my_fds, children_pids,
+          process_data_quickly(nfd, results, &reads, my_fds, children_pids,
                              &ready_cnt);
 
           bool can_report_before_quitting = true;
@@ -197,21 +201,37 @@ void run_test_case(int test_case_id) {
           }
 
           if (can_report_before_quitting) {
-            StopChildProcesses(children_pids);
-            Report(results);
-            exit(1);
+            stop_child_processes(children_pids);
+            report(results);
+            restore_terminal_settings();
+            return;
           }
-
+          
           printf("System was not able to calculate the result.\n\r");
           printf("The following values are not yet known:\n\r");
           for (int j = 0; j < n; ++j) {
-            if (results[j] == -1) {
-              printf("Function #%u\n\r", j);
+
+            if (results[j] >= 0)
+              continue;
+            
+            char func_code;
+
+            switch (j)
+            {
+              case 0:
+                func_code = 'f';
+                break;
+              case 1:
+                func_code = 'g';
+                break;
             }
+            
+            printf("Function %c\n\r", func_code);
           }
 
-          StopChildProcesses(children_pids);
-          exit(1);
+          stop_child_processes(children_pids);
+          restore_terminal_settings();
+          return;
 
         } else if (control_char == 'w') {
           prompt_flag = false;
@@ -221,7 +241,7 @@ void run_test_case(int test_case_id) {
     }
   }
 
-  Report(results);
+  report(results);
 
   sigprocmask(SIG_UNBLOCK, &sigset, NULL);
 
@@ -230,9 +250,31 @@ void run_test_case(int test_case_id) {
     printf("main waiter for %u", pid);
     continue;
   }
+
+  restore_terminal_settings();
 }
 
 int main() {
-  printf("running test case #%d\n\r", 0);
-  run_test_case(0);
+
+  int opcode;
+  char msg[64] = {
+    "Enter test number (-1 to exit)\n"
+  };
+      
+  while (true)
+  {
+    printf("%s", msg);
+    scanf(" %d", &opcode);
+
+    if (opcode == -1)
+    {
+      break;
+    }
+    
+    printf("running test case #%d\n", opcode);
+    run_test_case(opcode);
+    printf("\n");
+  }
+  
+  return 0;
 }

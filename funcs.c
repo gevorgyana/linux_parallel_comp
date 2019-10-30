@@ -1,13 +1,14 @@
 #include "funcs.h"
 #include "common.h"
 
+#include <stdbool.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
 
-void Report(const int *results) {
+void report(const int *results) {
   // calculate minimum of the return
   // values that we have
   unsigned int imin_result;
@@ -22,13 +23,13 @@ void Report(const int *results) {
   printf("The answer: %u\n\r", imin_result);
 }
 
-void StopChildProcesses(const int *children_pids) {
+void stop_child_processes(const int *children_pids) {
   for (int j = 0; j < n; ++j) {
     kill(children_pids[j], SIGTERM);
   }
 }
 
-void RefreshReadFds(fd_set *reads, const int *my_fds, const int *results) {
+void refresh_read_fds(fd_set *reads, const int *my_fds, const int *results) {
   // refresh info about children processes
   FD_ZERO(reads);
   for (int i = 0; i < n; ++i) {
@@ -42,11 +43,11 @@ void RefreshReadFds(fd_set *reads, const int *my_fds, const int *results) {
   }
 }
 
-void RestoreTerminalSettings() {
+void restore_terminal_settings() {
   tcsetattr(STDIN_FILENO, TCSANOW, &original_settings);
 }
 
-void PrepareTerminal() {
+void prepare_terminal() {
   // store previous settings
   tcgetattr(STDIN_FILENO, &original_settings);
 
@@ -65,13 +66,11 @@ void PrepareTerminal() {
 
   // apply new settings immediately
   tcsetattr(STDIN_FILENO, TCSANOW, &temp_termios);
-
-  // on exit, restore original settings
-  atexit(RestoreTerminalSettings);
 }
 
 // TODO prettify this mess and TODO rename parameters
-void ProcessDataQuickly(int nfd, int *results, fd_set *reads, const int *my_fds,
+// returns true if program execution must be stopped
+bool process_data_quickly(int nfd, int *results, fd_set *reads, const int *my_fds,
                         int *children_pids, int *ready_cnt) {
   // withoud setting up such a dummy timespec pselect
   // does not return immediately
@@ -91,15 +90,15 @@ void ProcessDataQuickly(int nfd, int *results, fd_set *reads, const int *my_fds,
     if (read(my_fds[i], &response, sizeof(struct message_from_child)) > 0) {
 
       if (response.value == 0) { // short-circuit
-        printf("NULL\n\r");
-        for (int j = 0; j < n; ++j) {
-          kill(children_pids[j], SIGTERM);
-        }
-        exit(1);
+        results[i] = response.value;
+        printf("0\n\r");
+        return true;
       }
 
       results[i] = response.value;
       ++(*ready_cnt);
     }
   }
+
+  return false;
 }

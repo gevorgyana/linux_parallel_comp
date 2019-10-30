@@ -1,17 +1,18 @@
 #pragma once
 
 #include <sys/select.h>
+#include <stdbool.h>
 
-void Report(const int *results);
+void report(const int *results);
 
-void StopChildProcesses(const int *children_pids);
+void stop_child_processes(const int *children_pids);
 
-void RefreshReadFds(fd_set *reads, const int *my_fds, const int *results);
+void refresh_read_fds(fd_set *reads, const int *my_fds, const int *results);
 
-void RestoreTerminalSettings();
+void restore_terminal_settings();
 
-void PrepareTerminal();
+void prepare_terminal();
 
 // TODO prettify this mess and TODO rename parameters
-void ProcessDataQuickly(int nfd, int *results, fd_set *reads, const int *my_fds,
+bool process_data_quickly(int nfd, int *results, fd_set *reads, const int *my_fds,
                         int *children_pids, int *ready_cnt);
