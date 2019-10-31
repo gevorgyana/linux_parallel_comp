@@ -195,11 +195,36 @@ void run_test_case(int test_case_id) {
 
         printf("System was not able to calculate the result.\n\r");
         printf("The following values are not yet known:\n\r");
+
+
+        for (int j = 0; j < n; ++j) {
+
+            if (results[j] >= 0)
+              continue;
+            
+            char func_code;
+
+            switch (j)
+            {
+              case 0:
+                func_code = 'f';
+                break;
+              case 1:
+                func_code = 'g';
+                break;
+            }
+            
+            printf("Function %c\n\r", func_code);
+          }
+
+
+        /*
         for (int j = 0; j < n; ++j) {
           if (results[j] == -1) {
             printf("Function #%u\n\r", j);
           }
         }
+        */
         
         for (int j = 0; j < n; ++j) {
           kill(children_pids[j], SIGTERM);
@@ -223,7 +248,7 @@ void run_test_case(int test_case_id) {
       if (ret_val > 0) {
         if (a.value == 0) { // short-circuit
 
-          printf("0\n\r");
+          printf("The answer: 0\n\r");
 
           for (int j = 0; j < n; ++j) {
             kill(children_pids[j], SIGTERM);
