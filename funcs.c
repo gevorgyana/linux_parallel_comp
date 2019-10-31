@@ -16,7 +16,7 @@ void report(const int *results) {
       imin_result = results[i];
       continue;
     }
-    
+
     imin_result = (imin_result < results[i] ? imin_result : results[i]);
   }
 

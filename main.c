@@ -196,36 +196,25 @@ void run_test_case(int test_case_id) {
         printf("System was not able to calculate the result.\n\r");
         printf("The following values are not yet known:\n\r");
 
-
         for (int j = 0; j < n; ++j) {
 
-            if (results[j] >= 0)
-              continue;
-            
-            char func_code;
+          if (results[j] >= 0)
+            continue;
 
-            switch (j)
-            {
-              case 0:
-                func_code = 'f';
-                break;
-              case 1:
-                func_code = 'g';
-                break;
-            }
-            
-            printf("Function %c\n\r", func_code);
+          char func_code;
+
+          switch (j) {
+          case 0:
+            func_code = 'f';
+            break;
+          case 1:
+            func_code = 'g';
+            break;
           }
 
-
-        /*
-        for (int j = 0; j < n; ++j) {
-          if (results[j] == -1) {
-            printf("Function #%u\n\r", j);
-          }
+          printf("Function %c\n\r", func_code);
         }
-        */
-        
+
         for (int j = 0; j < n; ++j) {
           kill(children_pids[j], SIGTERM);
         }
@@ -285,24 +274,20 @@ void run_test_case(int test_case_id) {
 int main() {
 
   int opcode;
-  char msg[64] = {
-    "Enter test number (-1 to exit)\n"
-  };
-      
-  while (true)
-  {
+  char msg[64] = {"Enter test number (-1 to exit)\n"};
+
+  while (true) {
     printf("%s", msg);
     scanf(" %d", &opcode);
 
-    if (opcode == -1)
-    {
+    if (opcode == -1) {
       break;
     }
-    
+
     printf("running test case #%d\n", opcode);
     run_test_case(opcode);
     printf("\n");
   }
-  
+
   return 0;
 }
