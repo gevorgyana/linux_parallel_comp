@@ -172,7 +172,7 @@ void run_test_case(int test_case_id) {
     if (FD_ISSET(STDIN_FILENO, &reads)) {
 
       char c;
-      scanf("%c", &c);
+      scanf(" %c", &c);
 
       if (c == 'q') {
 
@@ -267,7 +267,7 @@ int main() {
   while (true)
   {
     printf("%s", msg);
-    scanf("%d", &opcode);
+    scanf(" %d", &opcode);
 
     if (opcode == -1)
     {
