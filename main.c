@@ -71,8 +71,8 @@ void run_test_case(int test_case_id) {
 
     // send a messge to a child
     int wfd = open(fifo_filepath, O_WRONLY);
-    
-    struct message_to_child msg_ = {1};
+
+    struct message_to_child msg_ = {test_case_id};
     write(wfd, &msg_, sizeof(struct message_to_child));
 
     int success = fork();
@@ -95,16 +95,19 @@ void run_test_case(int test_case_id) {
 
       switch (i) {
       case 0:
+        /* can also access the variable directly
         response.value = f_func_imin(test_case_id);
+        */
+        response.value = f_func_imin(my_msg.value);
         break;
       case 1:
-        response.value = g_func_imin(test_case_id);
+        response.value = g_func_imin(my_msg.value);
         break;
       }
 
       int wdf = open(fifo_filepath, O_WRONLY);
       write(wdf, &response, sizeof(struct message_from_child));
-      
+
       // avoid calling atexit()-registered functions here
       _exit(0);
     }
@@ -206,14 +209,14 @@ void run_test_case(int test_case_id) {
             restore_terminal_settings();
             return;
           }
-          
+
           printf("System was not able to calculate the result.\n\r");
           printf("The following values are not yet known:\n\r");
           for (int j = 0; j < n; ++j) {
 
             if (results[j] >= 0)
               continue;
-            
+
             char func_code;
 
             switch (j)
@@ -225,7 +228,7 @@ void run_test_case(int test_case_id) {
                 func_code = 'g';
                 break;
             }
-            
+
             printf("Function %c\n\r", func_code);
           }
 
@@ -260,7 +263,7 @@ int main() {
   char msg[64] = {
     "Enter test number (-1 to exit)\n"
   };
-      
+
   while (true)
   {
     printf("%s", msg);
@@ -270,11 +273,11 @@ int main() {
     {
       break;
     }
-    
+
     printf("running test case #%d\n", opcode);
     run_test_case(opcode);
     printf("\n");
   }
-  
+
   return 0;
 }
