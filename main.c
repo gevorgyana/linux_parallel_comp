@@ -103,10 +103,13 @@ void run_test_case(int test_case_id) {
 
       switch (i) {
       case 0:
+        /* also works
         response.value = f_func_imin(test_case_id);
+        */
+        response.value = f_func_imin(my_msg.value);
         break;
       case 1:
-        response.value = g_func_imin(test_case_id);
+        response.value = g_func_imin(my_msg.value);
         break;
       }
 
