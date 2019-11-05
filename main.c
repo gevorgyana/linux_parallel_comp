@@ -79,7 +79,7 @@ void run_test_case(int test_case_id) {
     // send a messge to a child
     int wfd = open(fifo_filepath, O_WRONLY);
 
-    struct message_to_child msg_ = {1};
+    struct message_to_child msg_ = {test_case_id};
     write(wfd, &msg_, sizeof(struct message_to_child));
 
     int success = fork();
