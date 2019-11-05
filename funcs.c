@@ -9,8 +9,8 @@
 #include <unistd.h>
 
 void report(const int *results) {
-  // calculate minimum of the return
-  // values that we have
+
+  // imin
   unsigned int imin_result;
   for (int i = 0; i < n; ++i) {
     if (i == 0) {
@@ -29,7 +29,7 @@ void stop_child_processes(const int *children_pids) {
   }
 }
 
-void refresh_read_fds(fd_set *reads, const int *my_fds, const int *results) {
+void refresh_read_fds(fd_set *reads, const int *child_pipes_fds, const int *results) {
   // refresh info about children processes
   FD_ZERO(reads);
   for (int i = 0; i < n; ++i) {
@@ -39,7 +39,7 @@ void refresh_read_fds(fd_set *reads, const int *my_fds, const int *results) {
       continue;
     }
 
-    FD_SET(my_fds[i], reads);
+    FD_SET(child_pipes_fds[i], reads);
   }
 }
 
@@ -69,35 +69,32 @@ void prepare_terminal() {
 }
 
 // returns true iff accepted null-operand
-bool fetch_results(int nfd, int *results, fd_set *reads,
-                   const int *my_fds, int *children_pids,
+bool fetch(int nfd, int *results, fd_set *reads,
+                   const int *child_pipes_fds, int *children_pids,
                    int *ready_cnt)
 {
 
   // withoud setting up such a dummy timespec pselect
   // does not return immediately
-  struct timeval immediately;
+  struct timeval wait_for;
+  wait_for.tv_sec = SLEEP_FOR_SEC;
+  wait_for.tv_usec = SLEEP_FOR_NSEC;
 
-  // TODO fix this, 1) define or 2) params
-  immediately.tv_sec = 2;
-  immediately.tv_usec = 0;
-
-  while (immediately.tv_sec > 0 || immediately.tv_usec > 0)
+  while (wait_for.tv_sec > 0 || wait_for.tv_usec > 0)
   {
     if (*ready_cnt == n)
       break;
 
-    select(nfd, reads, NULL, NULL, &immediately);
+    select(nfd, reads, NULL, NULL, &wait_for);
 
     for (int i = 0; i < n; i++) {
-
       // already remembered or not ready to read
-      if ((results[i] >= 0) || !(FD_ISSET(my_fds[i], reads)))
+      if ((results[i] >= 0) || !(FD_ISSET(child_pipes_fds[i], reads)))
         continue;
 
       struct message_from_child response;
 
-      if (read(my_fds[i], &response, sizeof(struct message_from_child)) > 0) {
+      if (read(child_pipes_fds[i], &response, sizeof(struct message_from_child)) > 0) {
 
         if (response.value == 0) { // short-circuit
           printf("0\n\r");
@@ -114,32 +111,27 @@ bool fetch_results(int nfd, int *results, fd_set *reads,
   return false;
 }
 
-
-
+// returns true iff accepted null-operand
 bool fetch_quick(int nfd, int *results, fd_set *reads,
-                   const int *my_fds, int *children_pids,
+                   const int *child_pipes_fds, int *children_pids,
                    int *ready_cnt)
 {
 
-  // withoud setting up such a dummy timespec pselect
+  // withoud setting up such a dummy timespec select
   // does not return immediately
   struct timeval immediately;
-
-  // TODO fix this, 1) define or 2) params
   immediately.tv_sec = 0;
   immediately.tv_usec = 0;
 
   select(nfd, reads, NULL, NULL, &immediately);
 
   for (int i = 0; i < n; i++) {
-
     // already remembered or not ready to read
-    if ((results[i] >= 0) || !(FD_ISSET(my_fds[i], reads)))
+    if ((results[i] >= 0) || !(FD_ISSET(child_pipes_fds[i], reads)))
       continue;
 
     struct message_from_child response;
-
-    if (read(my_fds[i], &response, sizeof(struct message_from_child)) > 0) {
+    if (read(child_pipes_fds[i], &response, sizeof(struct message_from_child)) > 0) {
 
       if (response.value == 0) { // short-circuit
         printf("0\n\r");

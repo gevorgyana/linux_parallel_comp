@@ -11,13 +11,7 @@
 #include "funcs.h"
 #include "handlers.h"
 
-/**
- * original terminal settings,
- * will be restored when the application
- * exits normally
- */
-
-void run_test_case(int test_case_id) {
+void run(int test_case_id) {
   prepare_terminal();
 
   /**
@@ -32,7 +26,7 @@ void run_test_case(int test_case_id) {
   sigprocmask(SIG_BLOCK, &sigset, NULL);
 
   // holds file descriptors for FIFOs
-  int my_fds[n];
+  int child_pipes_fds[n];
 
   // holds process ids of children processes
   int children_pids[n];
@@ -58,20 +52,18 @@ void run_test_case(int test_case_id) {
 
   for (int i = 0; i < n; ++i) {
 
-    // prepare filepath of FIFO
+    // prepare FIFO
     char fifo_filepath[sizeof(FIFO_TEMPLATE) + 10];
     snprintf(fifo_filepath, sizeof(FIFO_TEMPLATE) + 10, FIFO_TEMPLATE,
-             (unsigned int)i);
-
+             (unsigned int) i);
     mkfifo(fifo_filepath, S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP);
 
-    // open FIFO to read from it later
+    // remember file descriptor to read from
     int rfd = open(fifo_filepath, O_RDONLY | O_NONBLOCK);
-    my_fds[i] = rfd;
+    child_pipes_fds[i] = rfd;
 
     // send a messge to a child
     int wfd = open(fifo_filepath, O_WRONLY);
-
     struct message_to_child msg_ = {test_case_id};
     write(wfd, &msg_, sizeof(struct message_to_child));
 
@@ -79,6 +71,8 @@ void run_test_case(int test_case_id) {
 
     if (success == 0) {
 
+      // close because we do
+      // need to have it opened
       close(pfd[0]);
 
       // read data from parent
@@ -90,14 +84,10 @@ void run_test_case(int test_case_id) {
       // the results from parent process
       close(pfd[1]);
 
-      // reponse
+      // compute
       struct message_from_child response;
-
       switch (i) {
       case 0:
-        /* can also access the variable directly
-        response.value = f_func_imin(test_case_id);
-        */
         response.value = f_func_imin(my_msg.value);
         break;
       case 1:
@@ -105,6 +95,7 @@ void run_test_case(int test_case_id) {
         break;
       }
 
+      // respond
       int wdf = open(fifo_filepath, O_WRONLY);
       write(wdf, &response, sizeof(struct message_from_child));
 
@@ -125,19 +116,36 @@ void run_test_case(int test_case_id) {
     printf("=== error reading in from sync pipe === \n\r");
   }
 
+
+  /**
+   * @note Now it can be safely assumed that parent process
+   * will not 'steal' messages from child processes; if it did,
+   * child processes would have never seen EOF and continued
+   * waiting forever. The previous 'trick' is possible
+   * because the read() call above will block
+   * until all of child processes close their
+   * write descriptors.
+
+   Reference:
+   * Section 44.3: Pipes as a method of synchronization;
+   * Michael Kerrisk, 'The Linux Programming Interface',
+   * https://www.amazon.com/Linux-Programming-Interface-System-Handbook/
+  */
+
   // return values from child processes
   int results[n];
 
   // how many child processes have reported
   int ready_cnt = 0;
 
-  // sigset used to wait for input from pipes
+  // set of file descriptors used to wait for input from pipes
+  // with select()
   fd_set reads;
 
   // optimization parameter for select
   int nfd = 0;
   for (int i = 0; i < n; ++i) {
-    nfd = (nfd > my_fds[i] ? nfd : my_fds[i]);
+    nfd = (nfd > child_pipes_fds[i] ? nfd : child_pipes_fds[i]);
   }
   ++nfd;
 
@@ -145,6 +153,7 @@ void run_test_case(int test_case_id) {
     results[i] = -1;
   }
 
+  // TODO remove
   // this timespec specifies how much manager should sleep
   // in between processing and showing user prompt
   struct timespec period;
@@ -156,9 +165,9 @@ void run_test_case(int test_case_id) {
 
   while (true) {
 
-    refresh_read_fds(&reads, my_fds, results);
+    refresh_read_fds(&reads, child_pipes_fds, results);
 
-    if (fetch_results(nfd, results, &reads, my_fds, children_pids, &ready_cnt)) // accepted a null operand
+    if (fetch(nfd, results, &reads, child_pipes_fds, children_pids, &ready_cnt)) // accepted a null operand
     {
       stop_child_processes(children_pids);
       restore_terminal_settings();
@@ -185,9 +194,9 @@ void run_test_case(int test_case_id) {
         if (control_char == 'c') {
           /*we may have taken too long waiting for user input; if there is already enough
            information to calculate result, do it*/
-          refresh_read_fds(&reads, my_fds, results);
+          refresh_read_fds(&reads, child_pipes_fds, results);
 
-          if (fetch_results(nfd, results, &reads, my_fds, children_pids, &ready_cnt))
+          if (fetch(nfd, results, &reads, child_pipes_fds, children_pids, &ready_cnt))
           {
             stop_child_processes(children_pids);
             restore_terminal_settings();
@@ -196,9 +205,9 @@ void run_test_case(int test_case_id) {
 
           break;
         } else if (control_char == 'q') {
-          refresh_read_fds(&reads, my_fds, results);
+          refresh_read_fds(&reads, child_pipes_fds, results);
 
-          fetch_quick(nfd, results, &reads, my_fds, children_pids,
+          fetch_quick(nfd, results, &reads, child_pipes_fds, children_pids,
                              &ready_cnt);
 
           bool can_report_before_quitting = true;
@@ -223,7 +232,6 @@ void run_test_case(int test_case_id) {
               continue;
 
             char func_code;
-
             switch (j)
             {
               case 0:
@@ -281,7 +289,7 @@ int main() {
     }
 
     printf("running test case #%d\n", opcode);
-    run_test_case(opcode);
+    run(opcode);
     printf("\n");
   }
 
