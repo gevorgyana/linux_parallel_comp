@@ -158,19 +158,13 @@ void run_test_case(int test_case_id) {
 
     refresh_read_fds(&reads, my_fds, results);
 
-    if (prompt_flag) // in this case it is desirable to
-                     // preserve periodicity
-    {
-      // TODO why does nanosleep sleep for more than needed?
-      nanosleep(&period, NULL);
-    }
-
-    if (process_data_quickly(nfd, results, &reads, my_fds, children_pids, &ready_cnt))
+    if (fetch_results(nfd, results, &reads, my_fds, children_pids, &ready_cnt)) // accepted a null operand
     {
       stop_child_processes(children_pids);
       restore_terminal_settings();
       return;
     }
+
 
     if (ready_cnt == n) // break from the main loop, as
       // the manager has completed its task
@@ -193,7 +187,7 @@ void run_test_case(int test_case_id) {
            information to calculate result, do it*/
           refresh_read_fds(&reads, my_fds, results);
 
-          if (process_data_quickly(nfd, results, &reads, my_fds, children_pids, &ready_cnt))
+          if (fetch_results(nfd, results, &reads, my_fds, children_pids, &ready_cnt))
           {
             stop_child_processes(children_pids);
             restore_terminal_settings();
@@ -204,7 +198,7 @@ void run_test_case(int test_case_id) {
         } else if (control_char == 'q') {
           refresh_read_fds(&reads, my_fds, results);
 
-          process_data_quickly(nfd, results, &reads, my_fds, children_pids,
+          fetch_quick(nfd, results, &reads, my_fds, children_pids,
                              &ready_cnt);
 
           bool can_report_before_quitting = true;
@@ -248,6 +242,7 @@ void run_test_case(int test_case_id) {
           return;
 
         } else if (control_char == 'w') {
+          restore_terminal_settings();
           prompt_flag = false;
           break;
         }

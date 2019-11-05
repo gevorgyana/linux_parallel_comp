@@ -13,6 +13,8 @@ void restore_terminal_settings();
 
 void prepare_terminal();
 
-// TODO prettify this mess and TODO rename parameters
-bool process_data_quickly(int nfd, int *results, fd_set *reads, const int *my_fds,
-                        int *children_pids, int *ready_cnt);
+bool fetch_results(int nfd, int *results, fd_set *reads, const int *my_fds,
+                   int *children_pids, int *ready_cnt);
+
+bool fetch_quick(int nfd, int *results, fd_set *reads, const int *my_fds,
+                 int *children_pids, int *ready_cnt);

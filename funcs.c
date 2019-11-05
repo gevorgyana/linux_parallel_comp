@@ -68,15 +68,68 @@ void prepare_terminal() {
   tcsetattr(STDIN_FILENO, TCSANOW, &temp_termios);
 }
 
-bool process_data_quickly(int nfd, int *results, fd_set *reads, const int *my_fds,
-                        int *children_pids, int *ready_cnt) {
+// returns true iff accepted null-operand
+bool fetch_results(int nfd, int *results, fd_set *reads,
+                   const int *my_fds, int *children_pids,
+                   int *ready_cnt)
+{
 
   // withoud setting up such a dummy timespec pselect
   // does not return immediately
-  struct timespec immediately;
+  struct timeval immediately;
+
+  // TODO fix this, 1) define or 2) params
+  immediately.tv_sec = 2;
+  immediately.tv_usec = 0;
+
+  while (immediately.tv_sec > 0 || immediately.tv_usec > 0)
+  {
+    if (*ready_cnt == n)
+      break;
+
+    select(nfd, reads, NULL, NULL, &immediately);
+
+    for (int i = 0; i < n; i++) {
+
+      // already remembered or not ready to read
+      if ((results[i] >= 0) || !(FD_ISSET(my_fds[i], reads)))
+        continue;
+
+      struct message_from_child response;
+
+      if (read(my_fds[i], &response, sizeof(struct message_from_child)) > 0) {
+
+        if (response.value == 0) { // short-circuit
+          printf("0\n\r");
+          results[i] = response.value;
+          return true;
+        }
+
+        results[i] = response.value;
+        ++(*ready_cnt);
+      }
+    }
+  }
+
+  return false;
+}
+
+
+
+bool fetch_quick(int nfd, int *results, fd_set *reads,
+                   const int *my_fds, int *children_pids,
+                   int *ready_cnt)
+{
+
+  // withoud setting up such a dummy timespec pselect
+  // does not return immediately
+  struct timeval immediately;
+
+  // TODO fix this, 1) define or 2) params
   immediately.tv_sec = 0;
-  immediately.tv_nsec = 0;
-  pselect(nfd, reads, NULL, NULL, &immediately, NULL);
+  immediately.tv_usec = 0;
+
+  select(nfd, reads, NULL, NULL, &immediately);
 
   for (int i = 0; i < n; i++) {
 
@@ -89,8 +142,8 @@ bool process_data_quickly(int nfd, int *results, fd_set *reads, const int *my_fd
     if (read(my_fds[i], &response, sizeof(struct message_from_child)) > 0) {
 
       if (response.value == 0) { // short-circuit
-        results[i] = response.value;
         printf("0\n\r");
+        results[i] = response.value;
         return true;
       }
 
