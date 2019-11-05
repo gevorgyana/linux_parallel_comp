@@ -68,10 +68,9 @@ void prepare_terminal() {
   tcsetattr(STDIN_FILENO, TCSANOW, &temp_termios);
 }
 
-// TODO prettify this mess and TODO rename parameters
-// returns true if program execution must be stopped
 bool process_data_quickly(int nfd, int *results, fd_set *reads, const int *my_fds,
                         int *children_pids, int *ready_cnt) {
+
   // withoud setting up such a dummy timespec pselect
   // does not return immediately
   struct timespec immediately;

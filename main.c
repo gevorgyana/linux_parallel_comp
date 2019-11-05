@@ -189,6 +189,17 @@ void run_test_case(int test_case_id) {
         // status and waits for user to tell what to do
 
         if (control_char == 'c') {
+          /*we may have taken too long waiting for user input; if there is already enough
+           information to calculate result, do it*/
+          refresh_read_fds(&reads, my_fds, results);
+
+          if (process_data_quickly(nfd, results, &reads, my_fds, children_pids, &ready_cnt))
+          {
+            stop_child_processes(children_pids);
+            restore_terminal_settings();
+            return;
+          }
+
           break;
         } else if (control_char == 'q') {
           refresh_read_fds(&reads, my_fds, results);
