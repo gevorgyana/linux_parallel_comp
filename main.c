@@ -18,7 +18,7 @@
  * exits normally
  */
 
-void run_test_case(int test_case_id) {
+void run(int test_case_id) {
   printf("press \"q\" to exit\n\r");
 
   prepare_terminal();
@@ -35,7 +35,7 @@ void run_test_case(int test_case_id) {
   sigprocmask(SIG_BLOCK, &sigset, NULL);
 
   // holds file descriptors for FIFOs
-  int my_fds[n];
+  int children_pipes_fds[n];
 
   // holds process ids of children processes
 
@@ -43,8 +43,6 @@ void run_test_case(int test_case_id) {
 
   // signal handler for catching zombies
   signal(SIGCHLD, HReapZombies);
-
-  umask(0);
 
   /**
    * processes in the group need write permissions;
@@ -65,32 +63,30 @@ void run_test_case(int test_case_id) {
 
   for (int i = 0; i < n; ++i) {
 
-    // prepare filepath of FIFO
+    // prepare FIFO
     char fifo_filepath[sizeof(FIFO_TEMPLATE) + 10];
     snprintf(fifo_filepath, sizeof(FIFO_TEMPLATE) + 10, FIFO_TEMPLATE,
              (unsigned int)i);
-
     mkfifo(fifo_filepath, S_IRUSR | S_IWUSR | S_IWGRP | S_IRGRP);
 
-    // open FIFO to read from it later
+    // remember file descriptor to read from
     int rfd = open(fifo_filepath, O_RDONLY | O_NONBLOCK);
-    my_fds[i] = rfd;
+    children_pipes_fds[i] = rfd;
 
-    // send a messge to a child
+    // send message to child
     int wfd = open(fifo_filepath, O_WRONLY);
-
     struct message_to_child msg_ = {test_case_id};
     write(wfd, &msg_, sizeof(struct message_to_child));
 
     int success = fork();
-
     if (success == 0) {
 
+      // close because we do
+      // need to have it opened
       close(pfd[0]);
 
       // read data from parent
       int fd = open(fifo_filepath, O_RDONLY);
-
       struct message_to_child my_msg;
       read(fd, &my_msg, sizeof(struct message_to_child));
 
@@ -98,14 +94,10 @@ void run_test_case(int test_case_id) {
       // the results from parent process
       close(pfd[1]);
 
-      // reponse
+      // compute
       struct message_from_child response;
-
       switch (i) {
       case 0:
-        /* also works
-        response.value = f_func_imin(test_case_id);
-        */
         response.value = f_func_imin(my_msg.value);
         break;
       case 1:
@@ -113,6 +105,7 @@ void run_test_case(int test_case_id) {
         break;
       }
 
+      // respond
       int wdf = open(fifo_filepath, O_WRONLY);
       write(wdf, &response, sizeof(struct message_from_child));
 
@@ -124,7 +117,7 @@ void run_test_case(int test_case_id) {
     children_pids[i] = success;
   }
 
-  // close write end of synchronization pipe
+  // close write end of synchronization pipe;
   close(pfd[1]);
 
   // wait for children to finish reading - when
@@ -133,19 +126,35 @@ void run_test_case(int test_case_id) {
     printf("=== error reading in from sync pipe === \n\r");
   }
 
+  /**
+   * @note Now it can be safely assumed that parent process
+   * will not 'steal' messages from child processes; if it did,
+   * child processes would have never seen EOF and continued
+   * waiting forever. The previous 'trick' is possible
+   * because the read() call above will block
+   * until all of child processes close their
+   * write descriptors.
+
+   Reference:
+   * Section 44.3: Pipes as a method of synchronization;
+   * Michael Kerrisk, 'The Linux Programming Interface',
+   * https://www.amazon.com/Linux-Programming-Interface-System-Handbook/
+  */
+
   // return values from child processes
   int results[n];
 
   // how many child processes have reported
   int ready_cnt = 0;
 
-  // sigset used to wait for input from pipes
+  // set of file descriptors used to wait for input from pipes
+  // with select()
   fd_set reads;
 
-  // optimization parameter for select
+  // optimization parameter for select()
   int nfd = 0;
   for (int i = 0; i < n; ++i) {
-    nfd = (nfd > my_fds[i] ? nfd : my_fds[i]);
+    nfd = (nfd > children_pipes_fds[i] ? nfd : children_pipes_fds[i]);
   }
   ++nfd;
 
@@ -164,12 +173,12 @@ void run_test_case(int test_case_id) {
         continue;
       }
 
-      FD_SET(my_fds[i], &reads);
+      FD_SET(children_pipes_fds[i], &reads);
     }
 
     FD_SET(STDIN_FILENO, &reads);
 
-    int ret_ = pselect(nfd, &reads, NULL, NULL, NULL, &sigset);
+    int ret_ = select(nfd, &reads, NULL, NULL, NULL);
 
     // someone wants to report
     if (FD_ISSET(STDIN_FILENO, &reads)) {
@@ -180,18 +189,14 @@ void run_test_case(int test_case_id) {
       if (c == 'q') {
 
         bool can_report_before_quitting = true;
-
         for (int i = 0; i < n && can_report_before_quitting; ++i) {
           can_report_before_quitting =
               can_report_before_quitting && (results[i] >= 0);
         }
 
         if (can_report_before_quitting) {
-
           stop_child_processes(children_pids);
-
           report(results);
-
           restore_terminal_settings();
           return;
         }
@@ -200,12 +205,10 @@ void run_test_case(int test_case_id) {
         printf("The following values are not yet known:\n\r");
 
         for (int j = 0; j < n; ++j) {
-
           if (results[j] >= 0)
             continue;
 
           char func_code;
-
           switch (j) {
           case 0:
             func_code = 'f';
@@ -214,7 +217,6 @@ void run_test_case(int test_case_id) {
             func_code = 'g';
             break;
           }
-
           printf("Function %c\n\r", func_code);
         }
 
@@ -230,12 +232,12 @@ void run_test_case(int test_case_id) {
     for (int i = 0; i < n; i++) {
 
       // already remembered or not ready to read
-      if ((results[i] >= 0) || !(FD_ISSET(my_fds[i], &reads)))
+      if ((results[i] >= 0) || !(FD_ISSET(children_pipes_fds[i], &reads)))
         continue;
 
       // safe to read here - no blocking
       struct message_from_child a;
-      int ret_val = read(my_fds[i], &a, sizeof(struct message_from_child));
+      int ret_val = read(children_pipes_fds[i], &a, sizeof(struct message_from_child));
 
       if (ret_val > 0) {
         if (a.value == 0) { // short-circuit
@@ -288,7 +290,7 @@ int main() {
     }
 
     printf("running test case #%d\n", opcode);
-    run_test_case(opcode);
+    run(opcode);
     printf("\n");
   }
 
