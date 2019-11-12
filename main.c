@@ -165,6 +165,7 @@ void run(int test_case_id) {
 
   while (true) {
 
+    // work with periods here
     refresh_read_fds(&reads, child_pipes_fds, results);
 
     if (fetch(nfd, results, &reads, child_pipes_fds, children_pids, &ready_cnt)) // accepted a null operand
@@ -196,7 +197,7 @@ void run(int test_case_id) {
            information to calculate result, do it*/
           refresh_read_fds(&reads, child_pipes_fds, results);
 
-          if (fetch(nfd, results, &reads, child_pipes_fds, children_pids, &ready_cnt))
+          if (fetch_quick(nfd, results, &reads, child_pipes_fds, children_pids, &ready_cnt))
           {
             stop_child_processes(children_pids);
             restore_terminal_settings();

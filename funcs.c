@@ -1,8 +1,8 @@
 #include "funcs.h"
 #include "common.h"
 
-#include <stdbool.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <termios.h>
@@ -29,7 +29,8 @@ void stop_child_processes(const int *children_pids) {
   }
 }
 
-void refresh_read_fds(fd_set *reads, const int *child_pipes_fds, const int *results) {
+void refresh_read_fds(fd_set *reads, const int *child_pipes_fds,
+                      const int *results) {
   // refresh info about children processes
   FD_ZERO(reads);
   for (int i = 0; i < n; ++i) {
@@ -69,10 +70,8 @@ void prepare_terminal() {
 }
 
 // returns true iff accepted null-operand
-bool fetch(int nfd, int *results, fd_set *reads,
-                   const int *child_pipes_fds, int *children_pids,
-                   int *ready_cnt)
-{
+bool fetch(int nfd, int *results, fd_set *reads, const int *child_pipes_fds,
+           int *children_pids, int *ready_cnt) {
 
   // withoud setting up such a dummy timespec pselect
   // does not return immediately
@@ -80,8 +79,7 @@ bool fetch(int nfd, int *results, fd_set *reads,
   wait_for.tv_sec = SLEEP_FOR_SEC;
   wait_for.tv_usec = SLEEP_FOR_NSEC;
 
-  while (wait_for.tv_sec > 0 || wait_for.tv_usec > 0)
-  {
+  while (wait_for.tv_sec > 0 || wait_for.tv_usec > 0) {
     if (*ready_cnt == n)
       break;
 
@@ -94,7 +92,8 @@ bool fetch(int nfd, int *results, fd_set *reads,
 
       struct message_from_child response;
 
-      if (read(child_pipes_fds[i], &response, sizeof(struct message_from_child)) > 0) {
+      if (read(child_pipes_fds[i], &response,
+               sizeof(struct message_from_child)) > 0) {
 
         if (response.value == 0) { // short-circuit
           printf("0\n\r");
@@ -113,9 +112,8 @@ bool fetch(int nfd, int *results, fd_set *reads,
 
 // returns true iff accepted null-operand
 bool fetch_quick(int nfd, int *results, fd_set *reads,
-                   const int *child_pipes_fds, int *children_pids,
-                   int *ready_cnt)
-{
+                 const int *child_pipes_fds, int *children_pids,
+                 int *ready_cnt) {
 
   // withoud setting up such a dummy timespec select
   // does not return immediately
@@ -131,7 +129,8 @@ bool fetch_quick(int nfd, int *results, fd_set *reads,
       continue;
 
     struct message_from_child response;
-    if (read(child_pipes_fds[i], &response, sizeof(struct message_from_child)) > 0) {
+    if (read(child_pipes_fds[i], &response, sizeof(struct message_from_child)) >
+        0) {
 
       if (response.value == 0) { // short-circuit
         printf("0\n\r");
